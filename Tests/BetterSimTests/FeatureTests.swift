@@ -404,13 +404,13 @@ struct AppPreviewTests {
         #expect(AppPreviewExporter.size(for: CGSize(width: 2064, height: 2752)) == CGSize(width: 1200, height: 1600))
     }
 
-    /// Longer than two seconds, because the writer stalls when the audio falls that far behind the video.
+    /// Longer than two seconds, which is where writing one track at a time used to stall.
     @Test(.timeLimit(.minutes(1))) func writesH264At30FramesWithStereoAudio() async throws {
         let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         let source = folder.appending(path: "phone.mov")
-        try await TouchTests.writeBlackVideo(to: source, size: CGSize(width: 402, height: 874), seconds: 4)
+        try await TouchTests.writeBlackVideo(to: source, size: CGSize(width: 201, height: 437), seconds: 4)
         let preview = folder.appending(path: "preview.mp4")
         let length = try await AppPreviewExporter.export(video: source, to: preview)
         #expect(abs(length - 4) < 0.05)
