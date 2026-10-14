@@ -98,7 +98,7 @@ enum DocImages {
                         .shadow(color: .black.opacity(0.45), radius: 28, y: 16)
                 }
                 PanelView(model: model, overlay: OverlayModel(), layout: PanelLayout())
-                    .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
+                    .environment(\.blursBehindPanel, false)
                     .padding(.top, 2)
             }
             .padding(.top, 10)
@@ -289,7 +289,7 @@ enum DocImages {
     /// The panel on its own, cut down to its cards.
     private static func panel(model: SimulatorModel) async throws -> NSImage {
         let rep = try await render(
-            PanelView(model: model, overlay: OverlayModel(), layout: PanelLayout()).padding(14),
+            PanelView(model: model, overlay: OverlayModel(), layout: PanelLayout()).environment(\.blursBehindPanel, false).padding(14),
             size: CGSize(width: Theme.width + 28, height: 1000)
         )
         guard let image = trimmed(rep) else { return NSImage() }

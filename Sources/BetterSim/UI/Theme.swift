@@ -6,6 +6,15 @@ enum Theme {
     static let cardRadius: CGFloat = 12
     static let font = Font.system(size: 11.5)
     static let smallFont = Font.system(size: 10.5, weight: .semibold)
+    /// The frosted material on its own barely darkens what's behind it. With this on top, the cards show the desktop
+    /// at about 60% brightness, like RocketSim's side window.
+    static let cardShade = Color.black.opacity(0.4)
+}
+
+extension EnvironmentValues {
+    /// Images drawn off screen can't blur what's behind the window, so they turn this off and let the shade darken
+    /// whatever the panel is drawn over.
+    @Entry var blursBehindPanel = true
 }
 
 struct VisualEffect: NSViewRepresentable {
@@ -29,12 +38,18 @@ struct Card<Content: View>: View {
     var padding: CGFloat = 10
     var spacing: CGFloat = 8
     @ViewBuilder let content: Content
+    @Environment(\.blursBehindPanel) private var blursBehind
 
     var body: some View {
         VStack(alignment: .leading, spacing: spacing) { content }
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(VisualEffect())
+            .background {
+                ZStack {
+                    if blursBehind { VisualEffect() }
+                    Theme.cardShade
+                }
+            }
             .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
