@@ -91,6 +91,9 @@ struct CaptureTab: View {
                 .help("Switch between light and dark mode")
             }
         }
+        if let camera = model.injector?.camera {
+            SimulatorCameraCard(model: model, camera: camera)
+        }
         if !model.captures.isEmpty {
             Card {
                 CardHeader(text: "Recent")
@@ -110,6 +113,34 @@ struct CaptureTab: View {
         case .mp4: "video"
         case .png: "camera"
         }
+    }
+}
+
+struct SimulatorCameraCard: View {
+    @ObservedObject var model: SimulatorModel
+    @ObservedObject var camera: SimulatorCamera
+
+    var body: some View {
+        Card {
+            CardHeader(text: "Simulator camera")
+            Row(label: "Shows") {
+                CompactMenu(title: camera.source.name) {
+                    ForEach(camera.cameras) { source in
+                        Button(source.name) { camera.source = source }
+                    }
+                    if !camera.cameras.isEmpty { Divider() }
+                    Button(SimulatorCamera.Source.testPattern.name) { camera.source = .testPattern }
+                }
+            }
+            let name = model.app?.name ?? "the App"
+            Pill(title: model.usesCamera ? "Turn Off in \(name)" : "Use in \(name)", symbol: model.usesCamera ? "video.slash" : "video", isOn: model.usesCamera) {
+                model.toggleCamera()
+            }
+            .disabled(model.app == nil)
+            .help("Relaunch the app with a camera that shows this. Previews, video frames and photos work.")
+            Note(text: "The app is relaunched with a camera that shows this.")
+        }
+        .onAppear { camera.refreshCameras() }
     }
 }
 

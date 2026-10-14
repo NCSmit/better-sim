@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 
 /// A small demo app for the README screenshots. Set TRAILS_API to a base URL to make it load from a server, which
@@ -41,6 +42,7 @@ struct RootView: View {
 struct ExploreView: View {
     @State private var trails = Trail.samples
     @State private var search = ""
+    @State private var showsCamera = UserDefaults.standard.bool(forKey: "openCamera")
 
     var body: some View {
         NavigationStack {
@@ -62,11 +64,15 @@ struct ExploreView: View {
             .navigationTitle("Trails")
             .searchable(text: $search, prompt: "Search trails")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showsCamera = true } label: { Image(systemName: "camera") }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {} label: { Image(systemName: "slider.horizontal.3") }
                 }
             }
         }
+        .fullScreenCover(isPresented: $showsCamera) { CameraScreen() }
         .task { await load() }
     }
 
@@ -171,4 +177,117 @@ struct Hills: Shape {
         path.closeSubpath()
         return path
     }
+}
+
+/// Snap a trail photo. Shows BetterSim's simulator camera: a live preview, and a photo taken with the shutter.
+struct CameraScreen: View {
+    @StateObject private var camera = Camera()
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            CameraPreview(session: camera.session).ignoresSafeArea()
+            VStack {
+                HStack {
+                    Text(camera.status)
+                        .font(.footnote.weight(.semibold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(.ultraThinMaterial, in: Capsule())
+                    Spacer()
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark").font(.headline).padding(10).background(.ultraThinMaterial, in: Circle())
+                    }
+                }
+                .padding()
+                Spacer()
+                HStack {
+                    Group {
+                        if let photo = camera.photo {
+                            Image(uiImage: photo).resizable().scaledToFill()
+                        } else {
+                            Color.white.opacity(0.15)
+                        }
+                    }
+                    .frame(width: 56, height: 56)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    Spacer()
+                    Button { camera.shoot() } label: {
+                        Circle().fill(.white).frame(width: 64, height: 64)
+                            .overlay(Circle().stroke(.white.opacity(0.5), lineWidth: 4).frame(width: 76, height: 76))
+                    }
+                    Spacer()
+                    Color.clear.frame(width: 56, height: 56)
+                }
+                .padding(.horizontal, 28)
+                .padding(.bottom, 24)
+            }
+            .foregroundStyle(.white)
+        }
+        .onAppear { camera.start() }
+        .onDisappear { camera.stop() }
+    }
+}
+
+final class Camera: NSObject, ObservableObject, AVCapturePhotoCaptureDelegate {
+    let session = AVCaptureSession()
+    private let output = AVCapturePhotoOutput()
+    private let queue = DispatchQueue(label: "camera")
+    @Published var photo: UIImage?
+    @Published var status = "Starting the camera"
+
+    func start() {
+        queue.async { [self] in
+            guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
+                  let input = try? AVCaptureDeviceInput(device: device)
+            else {
+                DispatchQueue.main.async { self.status = "No camera" }
+                return
+            }
+            session.beginConfiguration()
+            session.sessionPreset = .photo
+            if session.canAddInput(input) { session.addInput(input) }
+            if session.canAddOutput(output) { session.addOutput(output) }
+            session.commitConfiguration()
+            session.startRunning()
+            DispatchQueue.main.async {
+                self.status = device.localizedName
+                if UserDefaults.standard.bool(forKey: "takePhoto") {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { self.shoot() }
+                }
+            }
+        }
+    }
+
+    func stop() {
+        queue.async { [self] in session.stopRunning() }
+    }
+
+    func shoot() {
+        output.capturePhoto(with: AVCapturePhotoSettings(), delegate: self)
+    }
+
+    func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
+        guard let data = photo.fileDataRepresentation(), let image = UIImage(data: data) else { return }
+        DispatchQueue.main.async { self.photo = image }
+    }
+}
+
+struct CameraPreview: UIViewRepresentable {
+    let session: AVCaptureSession
+
+    final class PreviewView: UIView {
+        override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
+        var previewLayer: AVCaptureVideoPreviewLayer { layer as! AVCaptureVideoPreviewLayer }
+    }
+
+    func makeUIView(context: Context) -> PreviewView {
+        let view = PreviewView()
+        view.previewLayer.session = session
+        view.previewLayer.videoGravity = .resizeAspectFill
+        return view
+    }
+
+    func updateUIView(_ view: PreviewView, context: Context) {}
 }

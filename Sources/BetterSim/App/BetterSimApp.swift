@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let overlay = OverlayModel()
     private let thumbnail = ThumbnailWindow()
     private let networkMonitor = NetworkMonitor()
+    private let camera = SimulatorCamera()
     private lazy var networkWindow = NetworkWindow(monitor: networkMonitor)
     private lazy var model = SimulatorModel(preferences: preferences, library: library)
     private lazy var shortcuts = Shortcuts { [weak self] action in self?.perform(action) }
@@ -72,7 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return try DeviceElements.read(simulator: target.simulator, window: target.window.frame, screen: target.screen)
                 .map { AuditElement(role: $0.role, label: $0.label ?? "", frame: $0.frame.rect) }
         }
-        model.networkMonitor = networkMonitor
+        model.injector = AppInjector(network: networkMonitor, camera: camera)
         model.openNetworkMonitor = { [weak self] in self?.networkWindow.show() }
         model.openPhysicalDevices = { [weak self] in self?.physicalDevices.show() }
         Task { [networkMonitor] in _ = try? await networkMonitor.start() }

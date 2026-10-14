@@ -7,17 +7,23 @@ swift build -c release
 BIN_DIR="$(swift build -c release --show-bin-path)"
 APP="build/BetterSim.app"
 MONITOR="build/BetterSimNetworkMonitor.dylib"
+CAMERA="build/BetterSimCamera.dylib"
 
-# The network monitor is loaded into simulator apps, so it's built for the iOS simulator rather than the Mac.
+# The network monitor and the camera are loaded into simulator apps, so they're built for the iOS simulator.
 mkdir -p build
 xcrun -sdk iphonesimulator clang -dynamiclib -fobjc-arc -arch arm64 -arch x86_64 -mios-simulator-version-min=15.0 \
   -framework Foundation -o "$MONITOR" Monitor/BetterSimNetworkMonitor.m
+xcrun -sdk iphonesimulator clang -dynamiclib -fobjc-arc -arch arm64 -arch x86_64 -mios-simulator-version-min=15.0 \
+  -framework Foundation -framework AVFoundation -framework CoreGraphics -framework CoreImage -framework CoreMedia \
+  -framework CoreVideo -framework ImageIO -framework QuartzCore -framework UniformTypeIdentifiers \
+  -o "$CAMERA" Monitor/BetterSimCamera.m
 codesign --force --sign - "$MONITOR"
+codesign --force --sign - "$CAMERA"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN_DIR/BetterSim" "$APP/Contents/MacOS/BetterSim"
-cp "$MONITOR" "$APP/Contents/Resources/"
+cp "$MONITOR" "$CAMERA" "$APP/Contents/Resources/"
 cp Info.plist "$APP/Contents/Info.plist"
 xattr -cr "$APP"
 codesign --force --sign - "$APP"

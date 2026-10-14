@@ -191,15 +191,6 @@ struct NetworkMonitorTests {
         #expect(monitor.events.map(\.url) == ["https://api.example.com/v1/orders?table=4"])
     }
 
-    @Test func readsTheProcessSimctlLaunched() {
-        #expect(NetworkMonitor.processIdentifier(launchOutput: "com.example.trails: 66929\n") == 66929)
-        #expect(NetworkMonitor.processIdentifier(launchOutput: "") == nil)
-    }
-
-    @Test func monitorsNothingUntilItRelaunchesAnApp() {
-        #expect(!NetworkMonitor().isMonitoring("com.example.trails", on: "ABC"))
-    }
-
     @Test func keepsTheNewest500() {
         let monitor = NetworkMonitor()
         for _ in 0..<(NetworkMonitor.capacity + 10) { monitor.record(.sample()) }

@@ -21,7 +21,7 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>BetterSim shows, screenshots and records the screen of an iPhone or iPad connected with a USB cable. macOS treats that screen as a camera.</string>
+	<string>BetterSim streams your Mac's camera into simulator apps when you turn on the simulator camera, and shows the screen of an iPhone or iPad connected with a USB cable, which macOS treats as a camera.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>

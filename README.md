@@ -6,7 +6,7 @@
 
 **A free, open-source sidekick for the iOS Simulator.**
 
-BetterSim docks a slim panel next to the Simulator with everything you reach for while building an iOS app: framed screenshots, recordings that show your taps, design overlays, deep links, push notifications, app data, accessibility checks, a network monitor and more. It's built on Apple's own tools, so there's no account to make and nothing leaves your Mac.
+BetterSim docks a slim panel next to the Simulator with everything you reach for while building an iOS app: framed screenshots, recordings that show your taps, design overlays, deep links, push notifications, app data, accessibility checks, a network monitor, a camera for the Simulator and more. It's built on Apple's own tools, so there's no account to make and nothing leaves your Mac.
 
 [![macOS 14+](https://img.shields.io/badge/macOS-14%2B-000000?logo=apple&logoColor=white)](#install)
 [![Swift 6](https://img.shields.io/badge/Swift-6-F05138?logo=swift&logoColor=white)](Package.swift)
@@ -88,6 +88,16 @@ Relaunch your app with monitoring to see every URLSession request it makes, with
   <img src="docs/network.png" alt="The Network window listing four requests from the Trails app, with a POST to /api/favourites selected and its timing, headers and JSON body shown" width="820">
 </p>
 
+### Simulator camera
+
+The Simulator has no camera, so BetterSim lends your app one. Pick your Mac's camera, an iPhone through Continuity Camera, or a test pattern, and press **Use in** your app. BetterSim relaunches the app with a pretend camera that streams what you picked. Live previews, video frames and photos work with your app's existing AVFoundation code, and nothing in the app needs to change.
+
+<p align="center">
+  <img src="docs/camera.png" alt="Trails' camera screen in the Simulator showing BetterSim's test pattern and a photo just taken, next to the Simulator camera card set to Test Pattern" width="820">
+</p>
+
+Scanning codes with AVCaptureMetadataOutput, recording movies, and VisionKit's DataScannerViewController don't work yet. Frames are 1280 × 720, and the front and back cameras show the same picture.
+
 ### Device settings and accessibility
 
 - Light and dark mode, Dynamic Type, Increase Contrast, Bold Text, Reduce Motion, Reduce Transparency, Button Shapes and Differentiate Without Colour. Running apps update straight away.
@@ -146,7 +156,8 @@ BetterSim works without any special permissions. Some features ask for one the f
 | --- | --- |
 | Accessibility | Lining overlays up exactly with the screen, plus shake, memory warning, slow animations, the audit, the VoiceOver navigator, and taps from the command-line tool |
 | Screen Recording | 120 fps recordings with sound |
-| Camera and Microphone | Mirroring a connected iPhone or iPad, which macOS treats as a camera |
+| Camera | Streaming your Mac's camera into the simulator camera, and mirroring a connected iPhone or iPad, which macOS treats as a camera |
+| Microphone | Mirroring a connected iPhone or iPad with its sound |
 | Your administrator password | Network speed. macOS asks for it, and BetterSim never sees it |
 
 ## How it works
@@ -156,6 +167,7 @@ BetterSim works without any special permissions. Some features ask for one the f
 - **The panel** follows the Simulator's windows through the window list, and works out where the device screen is from the window's size. With Accessibility access, it asks the Simulator directly instead.
 - **Accessibility settings** are written to the device's own preferences, followed by the notification iOS apps listen for.
 - **The network monitor** relaunches your app with a small library that BetterSim builds for the Simulator. The library records the app's URLSession requests and hands them to BetterSim on your Mac. Only apps you relaunch from BetterSim are monitored.
+- **The simulator camera** relaunches your app with another small library. It shows AVFoundation a camera, and fills its previews, video frames and photos with frames BetterSim sends from your Mac. Your Mac's camera only runs while an app is using it.
 - **Network speed** uses dummynet, the traffic shaper built into macOS. The Simulator shares your Mac's network, so this slows down the whole Mac until you switch it back or quit BetterSim.
 
 ## Contributing

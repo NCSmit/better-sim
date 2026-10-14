@@ -22,6 +22,9 @@ enum DocImages {
             library.remember(link, for: demoApp)
         }
         let model = SimulatorModel(preferences: preferences, library: library)
+        let camera = SimulatorCamera(defaults: defaults)
+        camera.source = .testPattern
+        model.injector = AppInjector(network: NetworkMonitor(), camera: camera)
         await model.refresh()
         await model.select(udid)
         model.selectApp(demoApp)
@@ -45,6 +48,7 @@ enum DocImages {
         try await appSections(model: model, udid: udid, folder: folder)
         try await network(udid: udid, api: api, folder: folder)
         try await settings(preferences: preferences, defaults: defaults, folder: folder)
+        try await cameraImage(model: model, udid: udid, profile: profile, folder: folder)
     }
 
     private static func screen(of udid: String) async throws -> CGImage {
@@ -294,12 +298,46 @@ enum DocImages {
 
     /// The panel on its own, cut down to its cards.
     private static func panel(model: SimulatorModel) async throws -> NSImage {
+        try await cutOut(PanelView(model: model, overlay: OverlayModel(), layout: PanelLayout()))
+    }
+
+    /// Part of the panel on its own, cut down to its cards.
+    private static func cutOut<V: View>(_ view: V) async throws -> NSImage {
         let rep = try await render(
-            PanelView(model: model, overlay: OverlayModel(), layout: PanelLayout()).environment(\.blursBehindPanel, false).padding(14),
+            view.environment(\.blursBehindPanel, false).frame(width: Theme.width).padding(14).frame(maxHeight: .infinity, alignment: .top),
             size: CGSize(width: Theme.width + 28, height: 1000)
         )
         guard let image = trimmed(rep) else { return NSImage() }
         return NSImage(cgImage: image, size: NSSize(width: CGFloat(image.width) / 2, height: CGFloat(image.height) / 2))
+    }
+
+    /// Trails' camera screen with the simulator camera on, showing the test pattern and a photo just taken with it.
+    private static func cameraImage(model: SimulatorModel, udid: String, profile: DeviceProfile, folder: URL) async throws {
+        guard let injector = model.injector else { return }
+        try await AppDefaults.write(.bool(true), for: "openCamera", bundleID: demoApp, udid: udid)
+        try await AppDefaults.write(.bool(true), for: "takePhoto", bundleID: demoApp, udid: udid)
+        try await injector.relaunch(demoApp, on: udid, with: .camera)
+        try await Task.sleep(for: .seconds(4))
+        let shot = try await screen(of: udid)
+        let card = try await cutOut(SimulatorCameraCard(model: model, camera: injector.camera))
+        try await AppDefaults.delete("openCamera", bundleID: demoApp, udid: udid)
+        try await AppDefaults.delete("takePhoto", bundleID: demoApp, udid: udid)
+        try await injector.relaunch(demoApp, on: udid, with: [])
+        injector.camera.stop()
+        guard let framed = Framer.frame(shot, profile: profile) else { return }
+        let deviceHeight: CGFloat = 560
+        let view = ZStack {
+            Wallpaper()
+            HStack(alignment: .center, spacing: 36) {
+                Image(nsImage: NSImage(cgImage: framed, size: .zero))
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: deviceHeight * CGFloat(framed.width) / CGFloat(framed.height), height: deviceHeight)
+                    .shadow(color: .black.opacity(0.45), radius: 24, y: 14)
+                Image(nsImage: card).resizable().frame(width: card.size.width, height: card.size.height)
+            }
+        }
+        try await save(view, size: CGSize(width: 820, height: 640), to: folder.appending(path: "camera.png"), width: 1240)
     }
 
     /// Panels side by side on the wallpaper.

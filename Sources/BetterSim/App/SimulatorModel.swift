@@ -30,8 +30,8 @@ final class SimulatorModel: ObservableObject {
     /// Points out an element on the device screen, or clears the highlight with nil.
     var highlight: @MainActor (CGRect?) -> Void = { _ in }
     private let speech = AVSpeechSynthesizer()
-    /// Collects the requests apps make when they're launched with network monitoring. Set up by the app delegate.
-    var networkMonitor: NetworkMonitor?
+    /// Relaunches apps with the network monitor or the camera loaded. Set up by the app delegate.
+    var injector: AppInjector?
     var openNetworkMonitor: @MainActor () -> Void = {}
     var openPhysicalDevices: @MainActor () -> Void = {}
 
@@ -329,14 +329,33 @@ final class SimulatorModel: ObservableObject {
 
     /// Shows the app's requests, relaunching it with the monitor first unless it's already running with it.
     func monitorNetwork() {
-        guard let monitor = networkMonitor, let bundleID = selectedBundleID, let udid = selectedUDID else { return }
-        if monitor.isMonitoring(bundleID, on: udid) {
+        guard let injector, let bundleID = selectedBundleID, let udid = selectedUDID else { return }
+        let features = injector.features(of: bundleID, on: udid)
+        if features.contains(.network) {
             openNetworkMonitor()
             return
         }
         appAction("Relaunched. Its requests now show in the network monitor.") { [self] bundleID, udid in
-            try await monitor.relaunch(bundleID, on: udid)
+            try await injector.relaunch(bundleID, on: udid, with: features.union(.network))
             openNetworkMonitor()
+        }
+    }
+
+    /// Whether the selected app is running with the simulator camera.
+    var usesCamera: Bool {
+        guard let injector, let bundleID = selectedBundleID, let udid = selectedUDID else { return false }
+        return injector.features(of: bundleID, on: udid).contains(.camera)
+    }
+
+    /// Relaunches the selected app with the simulator camera, or without it when it already has it.
+    func toggleCamera() {
+        guard let injector, let bundleID = selectedBundleID, let udid = selectedUDID else { return }
+        let features = injector.features(of: bundleID, on: udid)
+        let name = app?.name ?? "The app"
+        let adding = !features.contains(.camera)
+        appAction(adding ? "\(name) now has a camera." : "\(name) no longer has the camera.") { [self] bundleID, udid in
+            try await injector.relaunch(bundleID, on: udid, with: adding ? features.union(.camera) : features.subtracting(.camera))
+            objectWillChange.send()
         }
     }
 

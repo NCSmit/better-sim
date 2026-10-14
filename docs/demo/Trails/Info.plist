@@ -32,6 +32,8 @@
 	<string>31</string>
 	<key>MinimumOSVersion</key>
 	<string>17.0</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Trails takes photos of the trails you walk.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
