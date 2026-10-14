@@ -149,9 +149,10 @@ enum Backdrop {
 }
 
 enum ImageFile {
+    /// Decodes straight away, because callers often delete the file as soon as it's loaded.
     static func load(_ url: URL) -> CGImage? {
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
-        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+        return CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCacheImmediately: true] as CFDictionary)
     }
 
     static func removingAlpha(_ image: CGImage) -> CGImage? {

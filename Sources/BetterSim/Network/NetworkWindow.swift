@@ -38,6 +38,11 @@ struct NetworkView: View {
     @State private var filter = ""
     @State private var selection: NetworkEvent.ID?
 
+    init(monitor: NetworkMonitor, selection: NetworkEvent.ID? = nil) {
+        self.monitor = monitor
+        _selection = State(initialValue: selection)
+    }
+
     var body: some View {
         let events = monitor.events.filter { $0.matches(filter) }
         VStack(spacing: 0) {

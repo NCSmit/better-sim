@@ -64,13 +64,16 @@ struct InstalledApp: Identifiable, Hashable, Sendable {
         return apps.compactMap { bundleID, info in
             guard info["ApplicationType"] as? String == "User" else { return nil }
             let name = info["CFBundleDisplayName"] as? String ?? info["CFBundleName"] as? String ?? bundleID
+            let path = (info["Path"] as? String).map { URL(filePath: $0) }
+            // simctl's listing leaves out the marketing version, so read it from the app itself.
+            let bundleInfo = path.flatMap { NSDictionary(contentsOf: $0.appending(path: "Info.plist")) as? [String: Any] }
             return InstalledApp(
                 bundleID: bundleID,
                 name: name,
-                version: info["CFBundleShortVersionString"] as? String,
+                version: info["CFBundleShortVersionString"] as? String ?? bundleInfo?["CFBundleShortVersionString"] as? String,
                 build: info["CFBundleVersion"] as? String,
                 dataContainer: (info["DataContainer"] as? String).flatMap(URL.init(string:)),
-                bundle: (info["Path"] as? String).map { URL(filePath: $0) }
+                bundle: path
             )
         }
         .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }

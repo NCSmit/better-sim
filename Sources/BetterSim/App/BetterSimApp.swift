@@ -35,6 +35,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var refreshTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let environment = ProcessInfo.processInfo.environment
+        if let folder = environment["BETTERSIM_DOC_IMAGES"], let udid = environment["BETTERSIM_DOC_UDID"] {
+            Task {
+                do {
+                    try await DocImages.make(into: URL(filePath: folder), udid: udid, api: environment["BETTERSIM_DOC_API"])
+                } catch {
+                    FileHandle.standardError.write(Data("Couldn't make the images: \(error.localizedDescription)\n".utf8))
+                }
+                NSApp.terminate(nil)
+            }
+            return
+        }
         if let folder = ProcessInfo.processInfo.environment["BETTERSIM_SNAPSHOT"] {
             Task { await snapshotPanel(into: URL(filePath: folder)) }
             return

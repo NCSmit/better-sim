@@ -54,6 +54,18 @@ Render every tab of the panel to PNG files:
 BETTERSIM_SNAPSHOT=/tmp/bettersim-snapshots build/BetterSim.app/Contents/MacOS/BetterSim
 ```
 
+## Remaking the README images
+
+The images in `docs/` are drawn from the real views, not taken as screenshots:
+
+```bash
+./docs/make-images.sh
+```
+
+The script builds BetterSim and the small Trails demo app in `docs/demo/`. It also starts a local API for the network monitor, and installs Trails on a throwaway simulator, which it deletes afterwards. Nothing from your own simulators or settings appears in the images.
+
+## Watching the app
+
 Watch what the app is doing:
 
 ```bash
