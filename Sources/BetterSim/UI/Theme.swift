@@ -33,23 +33,29 @@ struct VisualEffect: NSViewRepresentable {
     }
 }
 
+/// The dark frosted surface of the panel's cards and BetterSim's own windows.
+struct PanelSurface: View {
+    @Environment(\.blursBehindPanel) private var blursBehind
+
+    var body: some View {
+        ZStack {
+            if blursBehind { VisualEffect() }
+            Theme.cardShade
+        }
+    }
+}
+
 /// One floating, frosted card of the side panel.
 struct Card<Content: View>: View {
     var padding: CGFloat = 10
     var spacing: CGFloat = 8
     @ViewBuilder let content: Content
-    @Environment(\.blursBehindPanel) private var blursBehind
 
     var body: some View {
         VStack(alignment: .leading, spacing: spacing) { content }
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                ZStack {
-                    if blursBehind { VisualEffect() }
-                    Theme.cardShade
-                }
-            }
+            .background(PanelSurface())
             .clipShape(RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)

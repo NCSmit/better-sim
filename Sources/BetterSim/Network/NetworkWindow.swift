@@ -84,7 +84,7 @@ struct NetworkView: View {
             }
         }
         .frame(minWidth: 680, minHeight: 380)
-        .background(VisualEffect().ignoresSafeArea())
+        .background(PanelSurface().ignoresSafeArea())
     }
 
     private var placeholder: some View {

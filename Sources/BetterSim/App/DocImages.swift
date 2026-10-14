@@ -184,11 +184,12 @@ enum DocImages {
             try await Task.sleep(for: .milliseconds(250))
         }
         let selected = monitor.events.first { $0.method == "POST" }?.id
-        let window = WindowChrome(title: "Network") {
+        let window = WindowChrome(title: "Network", glass: true) {
             NetworkView(monitor: monitor, selection: selected)
         }
+        .environment(\.blursBehindPanel, false)
         .frame(width: 900, height: 540)
-        let view = ZStack { Wallpaper(); window.shadow(color: .black.opacity(0.4), radius: 24, y: 12) }
+        let view = ZStack { Wallpaper(); window }
         try await save(view, size: CGSize(width: 1000, height: 640), to: folder.appending(path: "network.png"), width: 1640)
     }
 
@@ -259,8 +260,11 @@ enum DocImages {
     }
 
     /// A plain macOS window frame, with traffic lights and a title, around a view.
+    /// A window frame for views drawn off screen. A `glass` window is see-through like the panel, and its content draws
+    /// its own surface.
     private struct WindowChrome<Content: View>: View {
         let title: String
+        var glass = false
         @ViewBuilder let content: Content
 
         var body: some View {
@@ -276,9 +280,11 @@ enum DocImages {
                     .padding(.horizontal, 14)
                 }
                 .frame(height: 28)
+                .frame(maxWidth: .infinity)
+                .background { if glass { PanelSurface() } }
                 content
             }
-            .background(Color(white: 0.15))
+            .background(glass ? Color.clear : Color(white: 0.15))
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.white.opacity(0.1)))
         }
