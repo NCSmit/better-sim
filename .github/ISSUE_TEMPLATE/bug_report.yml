@@ -1,0 +1,47 @@
+name: Bug report
+description: Something in BetterSim isn't working as expected.
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you see, and what did you expect to happen instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can we reproduce it?
+      placeholder: |
+        1. Boot an iPhone 17 Pro simulator
+        2. Click PNG in the panel
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and Mac model
+      placeholder: macOS 26.1, MacBook Pro 14-inch (M3)
+    validations:
+      required: true
+  - type: input
+    id: xcode
+    attributes:
+      label: Xcode version, and the simulator device and iOS version
+      placeholder: Xcode 26.6, iPhone 17 Pro on iOS 26.5
+    validations:
+      required: true
+  - type: input
+    id: bettersim
+    attributes:
+      label: BetterSim version
+      description: It's shown in the menu bar menu and at the bottom of Settings.
+      placeholder: "0.2"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: "Optional. Output of `log show --last 5m --info --predicate 'subsystem == \"local.bettersim\"'`."
+      render: text

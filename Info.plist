@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDisplayName</key>
+	<string>BetterSim</string>
+	<key>CFBundleExecutable</key>
+	<string>BetterSim</string>
+	<key>CFBundleIdentifier</key>
+	<string>local.bettersim</string>
+	<key>CFBundleName</key>
+	<string>BetterSim</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.2</string>
+	<key>CFBundleVersion</key>
+	<string>2</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>BetterSim shows, screenshots and records the screen of an iPhone or iPad connected with a USB cable. macOS treats that screen as a camera.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>BetterSim plays and records the sound of an iPhone or iPad whose screen it shows.</string>
+</dict>
+</plist>
