@@ -124,6 +124,7 @@ bettersim tap --label "Sign In"      # tap an element by its label
 bettersim type "hello@example.com"
 bettersim wait --label "Welcome" --timeout 10
 bettersim preview                    # see and control the Simulator in a browser
+bettersim camera on --app com.example.trails --source "Test Pattern"
 ```
 
 To install it, choose **Install Command-Line Tool…** in BetterSim's menu bar menu. That links `bettersim` into `~/.local/bin`. Run `bettersim --help` for every command. Commands that read or touch the screen go through the running app, so they need BetterSim to be open and allowed to use Accessibility.

@@ -11,6 +11,8 @@ enum AgentAction: Codable, Equatable, Sendable {
     case type(text: String)
     case waitForLabel(label: String, timeout: Double)
     case preview(port: Int?)
+    /// Gives an app the simulator camera or takes it away, after picking what it shows. With `on` nil, only reports.
+    case camera(on: Bool?, bundleID: String?, source: String?)
 }
 
 /// Sent as JSON, one request per connection. Without a UDID the app uses the device the Simulator shows as current.

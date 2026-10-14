@@ -51,6 +51,8 @@ enum AgentClient {
 /// Runs the requests that reach the app.
 @MainActor
 final class AgentCommands {
+    /// Runs `bettersim camera`. Set up by the app delegate, which owns the camera.
+    var camera: (@MainActor (_ on: Bool?, _ bundleID: String?, _ source: String?, _ udid: String?) async throws -> String)?
     private let knownScreen: (CGRect) -> CGRect?
     private let input = InputQueue()
     private var preview: (server: BrowserPreview, udid: String?)?
@@ -108,6 +110,9 @@ final class AgentCommands {
         case .preview(let port):
             if let port, !(1...65535).contains(port) { throw AgentFailure(.usage, "A port is a number from 1 to 65535.") }
             return AgentReply(url: try await startPreview(port: port, udid: udid).absoluteString)
+        case .camera(let on, let bundleID, let source):
+            guard let camera else { throw AgentFailure(.failed, "This copy of BetterSim can't run the simulator camera.") }
+            return AgentReply(message: try await camera(on, bundleID, source, udid))
         }
     }
 

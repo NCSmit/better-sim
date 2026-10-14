@@ -60,9 +60,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let panel = PanelController(model: model, overlayModel: overlay)
         panel.start()
         self.panel = panel
-        agentServer = AgentServer.start(commands: AgentCommands { [weak panel] window in
+        let commands = AgentCommands { [weak panel] window in
             panel?.simulatorWindow == window ? panel?.currentScreen : nil
-        })
+        }
+        commands.camera = { [weak self] on, bundleID, source, udid in
+            guard let self else { throw AgentFailure(.failed, "BetterSim is quitting.") }
+            return try await self.model.cameraCommand(on: on, bundleID: bundleID, source: source, udid: udid)
+        }
+        agentServer = AgentServer.start(commands: commands)
         model.onCapture = { [weak self] url in self?.thumbnail.show(url, near: self?.panel?.simulatorWindow) }
         model.highlight = { [weak self] rect in self?.overlay.highlight = rect }
         model.readElements = { [weak self] in

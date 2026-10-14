@@ -142,6 +142,8 @@ enum CommandLineTool {
             let reply = try await forward(.preview(port: port), timeout: 15)
             let url = reply.url ?? ""
             return CommandResult(text: url, json: AgentCoding.string(Outcome(url: url)))
+        case .camera(let on, let bundleID, let source):
+            return .forwarded(try await forward(.camera(on: on, bundleID: bundleID, source: source), timeout: 60))
         }
     }
 

@@ -347,6 +347,33 @@ final class SimulatorModel: ObservableObject {
         return injector.features(of: bundleID, on: udid).contains(.camera)
     }
 
+    /// What `bettersim camera` does: picks what the camera shows, then relaunches an app with the camera or without it.
+    /// Without an app it uses the one selected in the panel.
+    func cameraCommand(on: Bool?, bundleID: String?, source: String?, udid: String?) async throws -> String {
+        guard let injector else { throw AgentFailure(.failed, "This copy of BetterSim can't run the simulator camera.") }
+        let camera = injector.camera
+        camera.refreshCameras()
+        let choices = camera.cameras + [.testPattern]
+        if let source {
+            let wantsPattern = source.localizedCaseInsensitiveContains("test") || source.localizedCaseInsensitiveContains("pattern")
+            guard let match = wantsPattern ? .testPattern : camera.cameras.first(where: { $0.name.localizedCaseInsensitiveContains(source) }) else {
+                throw AgentFailure(.notFound, "There's no camera called \(source). Choose from: \(choices.map(\.name).joined(separator: ", ")).")
+            }
+            camera.source = match
+        }
+        guard let on else {
+            return "The simulator camera shows \(camera.source.name). Cameras: \(choices.map(\.name).joined(separator: ", "))."
+        }
+        let device = try await DeviceResolver.resolve(udid ?? selectedUDID)
+        guard let app = bundleID ?? selectedBundleID else { throw AgentFailure(.usage, "Say which app with --app BUNDLE_ID.") }
+        let features = injector.features(of: app, on: device.udid)
+        try await injector.relaunch(app, on: device.udid, with: on ? features.union(.camera) : features.subtracting(.camera))
+        objectWillChange.send()
+        return on
+            ? "Relaunched \(app) on \(device.name) with the simulator camera, showing \(camera.source.name)."
+            : "Relaunched \(app) on \(device.name) without the simulator camera."
+    }
+
     /// Relaunches the selected app with the simulator camera, or without it when it already has it.
     func toggleCamera() {
         guard let injector, let bundleID = selectedBundleID, let udid = selectedUDID else { return }

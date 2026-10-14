@@ -22,6 +22,7 @@ enum CLICommand: Equatable {
     case type(String)
     case wait(label: String, timeout: Double)
     case preview(port: Int?)
+    case camera(on: Bool?, bundleID: String?, source: String?)
 }
 
 struct CLIInvocation: Equatable {
@@ -32,14 +33,14 @@ struct CLIInvocation: Equatable {
     /// Whether each option takes a value.
     private static let options: [String: Bool] = [
         "udid": true, "json": false, "help": false, "frame": false, "out": true, "gif": false, "all": false,
-        "label": true, "duration": true, "timeout": true, "port": true,
+        "label": true, "duration": true, "timeout": true, "port": true, "app": true, "source": true,
     ]
 
     private static let globalOptions: Set<String> = ["udid", "json", "help"]
 
     private static let commandOptions: [String: Set<String>] = [
         "screenshot": ["frame", "out"], "record": ["gif", "out"], "ui": ["all"], "tap": ["label"],
-        "swipe": ["duration"], "wait": ["label", "timeout"], "preview": ["port"],
+        "swipe": ["duration"], "wait": ["label", "timeout"], "preview": ["port"], "camera": ["app", "source"],
     ]
 
     static func parse(_ arguments: [String]) throws -> CLIInvocation {
@@ -88,7 +89,7 @@ struct CLIInvocation: Equatable {
 
     private static let commands: Set<String> = [
         "devices", "screenshot", "record", "open", "push", "launch", "terminate", "appearance", "statusbar", "location",
-        "doctor", "ui", "tap", "swipe", "type", "wait", "preview",
+        "doctor", "ui", "tap", "swipe", "type", "wait", "preview", "camera",
     ]
 
     private static func command(_ name: String, _ words: [String], _ values: [String: String]) throws -> CLICommand {
@@ -164,6 +165,15 @@ struct CLIInvocation: Equatable {
             guard let text = values["port"] else { return .preview(port: nil) }
             guard let port = Int(text), (1...65535).contains(port) else { throw usage("--port needs a number from 1 to 65535.") }
             return .preview(port: port)
+        case "camera":
+            guard words.count <= 1 else { throw usage("Use bettersim camera [on|off] [--app BUNDLE_ID] [--source NAME].") }
+            let on: Bool? = switch words.first {
+            case nil: nil
+            case "on": true
+            case "off": false
+            default: throw usage("Say on or off, for example bettersim camera on --app com.example.app.")
+            }
+            return .camera(on: on, bundleID: values["app"], source: values["source"])
         default:
             throw usage("There's no command called \(name).")
         }
@@ -222,6 +232,12 @@ struct CLIInvocation: Equatable {
       type TEXT                           Type into the focused field.
       wait --label TEXT [--timeout S]     Wait for an element with that label. It gives up after 10 seconds unless you say.
       preview [--port N]                  Show the screen in a web browser, and print the page's private address.
+
+    App commands. These need BetterSim to be open:
+      camera [on|off] [--app BUNDLE_ID] [--source NAME]
+                                          Relaunch an app with the simulator camera, or without it. --source picks
+                                          a Mac camera by name, or the test pattern. With neither on nor off, lists
+                                          the cameras. Without --app, it's the app selected in BetterSim's panel.
 
     Options:
       --udid UDID   Use this simulator. Otherwise it's the one the Simulator app shows.

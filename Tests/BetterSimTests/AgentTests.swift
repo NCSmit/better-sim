@@ -74,6 +74,15 @@ struct CommandLineParsingTests {
         #expect(try command("preview", "--port", "8123") == .preview(port: 8123))
     }
 
+    @Test func readsTheCameraCommand() throws {
+        #expect(try command("camera") == .camera(on: nil, bundleID: nil, source: nil))
+        #expect(try command("camera", "on", "--app", "com.example.trails") == .camera(on: true, bundleID: "com.example.trails", source: nil))
+        #expect(try command("camera", "off") == .camera(on: false, bundleID: nil, source: nil))
+        #expect(try command("camera", "on", "--source", "Test Pattern") == .camera(on: true, bundleID: nil, source: "Test Pattern"))
+        #expect(throws: AgentFailure.self) { try command("camera", "maybe") }
+        #expect(throws: AgentFailure.self) { try command("camera", "on", "now") }
+    }
+
     @Test func takesTheGlobalOptionsAnywhere() throws {
         let before = try CLIInvocation.parse(["--udid", "ABC", "--json", "screenshot"])
         let after = try CLIInvocation.parse(["screenshot", "--json", "--udid=ABC"])
@@ -125,6 +134,7 @@ struct AgentCodingTests {
             .ping, .listElements(includeAll: true), .tap(x: 10, y: 20.5), .tapLabel(label: "Sign In"),
             .swipe(fromX: 1, fromY: 2, toX: 3, toY: 4, duration: 0.5), .type(text: "héllo\n"),
             .waitForLabel(label: "Done", timeout: 5), .preview(port: nil), .preview(port: 8123),
+            .camera(on: true, bundleID: "com.example.trails", source: "FaceTime"), .camera(on: nil, bundleID: nil, source: nil),
         ]
         for action in actions {
             for udid in ["ABC", nil] {
