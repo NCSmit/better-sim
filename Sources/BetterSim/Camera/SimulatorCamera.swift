@@ -1,6 +1,7 @@
 import AppKit
 import AVFoundation
 import CoreImage
+import CoreImage.CIFilterBuiltins
 import CoreText
 import ImageIO
 import Network
@@ -21,13 +22,29 @@ final class SimulatorCamera: ObservableObject {
     enum Source: Hashable, Identifiable {
         case mac(id: String, name: String)
         case testPattern
+        case image(URL)
 
         static let testPatternID = "test-pattern"
+        static let imagePrefix = "image:"
+
+        /// The test pattern, or an image that's still there, from the id saved last time.
+        init?(savedID: String?) {
+            guard let savedID else { return nil }
+            let path = String(savedID.dropFirst(Self.imagePrefix.count))
+            if savedID == Self.testPatternID {
+                self = .testPattern
+            } else if savedID.hasPrefix(Self.imagePrefix), FileManager.default.fileExists(atPath: path) {
+                self = .image(URL(filePath: path))
+            } else {
+                return nil
+            }
+        }
 
         var id: String {
             switch self {
             case .mac(let id, _): id
             case .testPattern: Self.testPatternID
+            case .image(let url): Self.imagePrefix + url.path
             }
         }
 
@@ -35,12 +52,15 @@ final class SimulatorCamera: ObservableObject {
             switch self {
             case .mac(_, let name): name
             case .testPattern: "Test Pattern"
+            case .image(let url): url.lastPathComponent
             }
         }
     }
 
     nonisolated static let libraryName = "BetterSimCamera"
     nonisolated static let frameSize = CGSize(width: 1280, height: 720)
+    /// What the QR code in the test pattern says.
+    nonisolated static let testCode = "https://github.com/NCSmit/better-sim"
 
     @Published var source: Source { didSet { sourceChanged() } }
     @Published private(set) var cameras: [Source] = []
@@ -58,7 +78,7 @@ final class SimulatorCamera: ObservableObject {
         source = .testPattern
         refreshCameras()
         let saved = defaults.string(forKey: "simulatorCamera")
-        source = cameras.first { $0.id == saved } ?? (saved == Source.testPatternID ? .testPattern : cameras.first ?? .testPattern)
+        source = cameras.first { $0.id == saved } ?? Source(savedID: saved) ?? cameras.first ?? .testPattern
         hub.viewersChanged = { [weak self] count in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.viewersChanged(count) } }
         }
@@ -67,6 +87,16 @@ final class SimulatorCamera: ObservableObject {
     func refreshCameras() {
         let discovery = AVCaptureDevice.DiscoverySession(deviceTypes: [.builtInWideAngleCamera, .external, .continuityCamera], mediaType: .video, position: .unspecified)
         cameras = discovery.devices.map { .mac(id: $0.uniqueID, name: $0.localizedName) }
+    }
+
+    /// Shows a picture instead of a camera, such as a QR code to scan.
+    func chooseImage() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.prompt = "Show"
+        NSApp.activate()
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        source = .image(url)
     }
 
     /// Starts listening if it isn't already, and returns the port once it's ready.
@@ -143,6 +173,8 @@ final class SimulatorCamera: ObservableObject {
         switch source {
         case .testPattern:
             producer = TestPatternProducer(emit: emit)
+        case .image(let url):
+            producer = StillImageProducer(url: url, emit: emit) ?? TestPatternProducer(note: "Can't open \(url.lastPathComponent)", emit: emit)
         case .mac(let id, let name):
             switch AVCaptureDevice.authorizationStatus(for: .video) {
             case .authorized:
@@ -247,44 +279,51 @@ final class TestPatternProducer: FrameProducer, @unchecked Sendable {
     }
 
     static func draw(frame: Int, note: String?, date: Date = .now) -> Data? {
-        let width = Int(SimulatorCamera.frameSize.width), height = Int(SimulatorCamera.frameSize.height)
-        guard let context = CGContext(
-            data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
-        ) else { return nil }
+        let width = SimulatorCamera.frameSize.width, height = SimulatorCamera.frameSize.height
+        guard let context = FrameDrawing.context() else { return nil }
         let space = CGColorSpace(name: CGColorSpace.sRGB)!
         let colors = [CGColor(red: 0.13, green: 0.16, blue: 0.42, alpha: 1), CGColor(red: 0.36, green: 0.16, blue: 0.48, alpha: 1)] as CFArray
         if let gradient = CGGradient(colorsSpace: space, colors: colors, locations: [0, 1]) {
-            context.drawLinearGradient(gradient, start: CGPoint(x: 0, y: CGFloat(height)), end: CGPoint(x: CGFloat(width), y: 0), options: [])
+            context.drawLinearGradient(gradient, start: CGPoint(x: 0, y: height), end: CGPoint(x: width, y: 0), options: [])
         }
 
         let bars: [(CGFloat, CGFloat, CGFloat)] = [(1, 1, 1), (1, 0.85, 0.1), (0.1, 0.85, 0.95), (0.2, 0.8, 0.3), (0.9, 0.2, 0.75), (0.95, 0.25, 0.2), (0.15, 0.35, 0.95)]
-        let barWidth = CGFloat(width) / CGFloat(bars.count)
+        let barWidth = width / CGFloat(bars.count)
         for (index, bar) in bars.enumerated() {
             context.setFillColor(CGColor(red: bar.0, green: bar.1, blue: bar.2, alpha: 1))
-            context.fill(CGRect(x: CGFloat(index) * barWidth, y: CGFloat(height) - 90, width: barWidth, height: 90))
+            context.fill(CGRect(x: CGFloat(index) * barWidth, y: height - 90, width: barWidth, height: 90))
         }
 
-        // A phone held upright only shows the middle of the frame, so everything that matters stays in that column.
-        let middle = CGFloat(width) / 2
-        let phase = Double(frame % 90) / 90
-        let sweep = phase < 0.5 ? phase * 2 : (1 - phase) * 2
-        context.setFillColor(CGColor(red: 1, green: 0.8, blue: 0.2, alpha: 1))
-        context.fillEllipse(in: CGRect(x: middle - 130 + sweep * 200, y: 110, width: 60, height: 60))
-
+        // A phone held upright only shows the middle of the frame, so everything that matters stays in that column. The
+        // QR code sits in the very middle, where scanning apps put their viewfinder.
+        let middle = width / 2
         let clock = DateFormatter()
         clock.locale = Locale(identifier: "en_US_POSIX")
         clock.dateFormat = "HH:mm:ss"
-        Self.text("BetterSim", size: 44, weight: .bold, center: CGPoint(x: middle, y: CGFloat(height) / 2 + 95), in: context)
-        Self.text(clock.string(from: date), size: 64, weight: .semibold, center: CGPoint(x: middle, y: CGFloat(height) / 2 + 20), in: context)
-        Self.text(note ?? "Frame \(frame)", size: 24, weight: .medium, center: CGPoint(x: middle, y: CGFloat(height) / 2 - 50), in: context)
+        Self.text("BetterSim", size: 44, weight: .bold, center: CGPoint(x: middle, y: height - 130), in: context)
+        Self.text(clock.string(from: date), size: 64, weight: .semibold, center: CGPoint(x: middle, y: height - 205), in: context)
+        if let code = Self.code {
+            let side = CGFloat(code.width) * 5
+            FrameDrawing.card(code, in: CGRect(x: middle - side / 2, y: height / 2 - side / 2, width: side, height: side), margin: 15, context: context)
+        }
+        Self.text(note ?? "Frame \(frame)", size: 24, weight: .medium, center: CGPoint(x: middle, y: height - 490), in: context)
 
-        guard let image = context.makeImage() else { return nil }
-        let data = NSMutableData()
-        guard let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
-        CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.8] as CFDictionary)
-        return CGImageDestinationFinalize(destination) ? data as Data : nil
+        let phase = Double(frame % 90) / 90
+        let sweep = phase < 0.5 ? phase * 2 : (1 - phase) * 2
+        context.setFillColor(CGColor(red: 1, green: 0.8, blue: 0.2, alpha: 1))
+        context.fillEllipse(in: CGRect(x: middle - 130 + sweep * 200, y: height - 600, width: 60, height: 60))
+
+        return FrameDrawing.jpeg(context)
     }
+
+    /// One pixel for each module of the code.
+    private static let code: CGImage? = {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(SimulatorCamera.testCode.utf8)
+        filter.correctionLevel = "M"
+        guard let output = filter.outputImage else { return nil }
+        return CIContext().createCGImage(output, from: output.extent)
+    }()
 
     private static func text(_ string: String, size: CGFloat, weight: NSFont.Weight, center: CGPoint, in context: CGContext) {
         let attributes: [NSAttributedString.Key: Any] = [
@@ -295,6 +334,68 @@ final class TestPatternProducer: FrameProducer, @unchecked Sendable {
         let bounds = CTLineGetBoundsWithOptions(line, .useOpticalBounds)
         context.textPosition = CGPoint(x: center.x - bounds.width / 2 - bounds.minX, y: center.y - bounds.height / 2 - bounds.minY)
         CTLineDraw(line, context)
+    }
+}
+
+/// A picture held up to the camera, on a white card so a QR code keeps the light border scanners look for.
+final class StillImageProducer: FrameProducer, @unchecked Sendable {
+    private let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "local.bettersim.camera.image"))
+
+    init?(url: URL, emit: @escaping @Sendable (Data) -> Void) {
+        guard let image = NSImage(contentsOf: url)?.cgImage(forProposedRect: nil, context: nil, hints: nil),
+              let jpeg = Self.draw(image)
+        else { return nil }
+        timer.schedule(deadline: .now(), repeating: .milliseconds(33))
+        timer.setEventHandler { emit(jpeg) }
+        timer.resume()
+    }
+
+    func stop() {
+        timer.cancel()
+    }
+
+    /// The picture fits inside the viewfinder of a full-screen scanner on a phone held upright. Wide pictures, such as
+    /// barcodes, get the whole width a phone held upright shows, so their thin bars stay readable.
+    static func draw(_ image: CGImage) -> Data? {
+        let frame = SimulatorCamera.frameSize
+        guard let context = FrameDrawing.context(), image.width > 0, image.height > 0 else { return nil }
+        context.setFillColor(CGColor(gray: 0.12, alpha: 1))
+        context.fill(CGRect(origin: .zero, size: frame))
+        let width: CGFloat = image.width >= 2 * image.height ? 380 : 200
+        let scale = min(width / CGFloat(image.width), 440 / CGFloat(image.height))
+        let size = CGSize(width: CGFloat(image.width) * scale, height: CGFloat(image.height) * scale)
+        let rect = CGRect(x: (frame.width - size.width) / 2, y: (frame.height - size.height) / 2, width: size.width, height: size.height)
+        FrameDrawing.card(image, in: rect, margin: 16, context: context)
+        return FrameDrawing.jpeg(context)
+    }
+}
+
+/// Frames are drawn into 1280 × 720 bitmaps and sent as JPEGs.
+enum FrameDrawing {
+    static func context() -> CGContext? {
+        CGContext(
+            data: nil, width: Int(SimulatorCamera.frameSize.width), height: Int(SimulatorCamera.frameSize.height), bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+        )
+    }
+
+    /// Draws the image into `rect` on a white card. Enlarged images keep hard edges, so codes stay sharp.
+    static func card(_ image: CGImage, in rect: CGRect, margin: CGFloat, context: CGContext) {
+        context.saveGState()
+        context.setFillColor(CGColor(gray: 1, alpha: 1))
+        context.addPath(CGPath(roundedRect: rect.insetBy(dx: -margin, dy: -margin), cornerWidth: 12, cornerHeight: 12, transform: nil))
+        context.fillPath()
+        context.interpolationQuality = rect.width > CGFloat(image.width) ? .none : .high
+        context.draw(image, in: rect)
+        context.restoreGState()
+    }
+
+    static func jpeg(_ context: CGContext) -> Data? {
+        guard let image = context.makeImage() else { return nil }
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(data, UTType.jpeg.identifier as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.8] as CFDictionary)
+        return CGImageDestinationFinalize(destination) ? data as Data : nil
     }
 }
 

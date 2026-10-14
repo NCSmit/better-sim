@@ -143,8 +143,14 @@ enum CommandLineTool {
             let url = reply.url ?? ""
             return CommandResult(text: url, json: AgentCoding.string(Outcome(url: url)))
         case .camera(let on, let bundleID, let source):
-            return .forwarded(try await forward(.camera(on: on, bundleID: bundleID, source: source), timeout: 60))
+            return .forwarded(try await forward(.camera(on: on, bundleID: bundleID, source: source.map(fullPathIfFile)), timeout: 60))
         }
+    }
+
+    /// BetterSim runs in another folder, so an image named relative to this one is sent as a full path.
+    static func fullPathIfFile(_ value: String) -> String {
+        let url = URL(filePath: (value as NSString).expandingTildeInPath, relativeTo: .currentDirectory())
+        return FileManager.default.fileExists(atPath: url.path) ? url.standardizedFileURL.path : value
     }
 
     private static func devices() async throws -> CommandResult {

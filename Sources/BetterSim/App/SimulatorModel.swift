@@ -354,15 +354,19 @@ final class SimulatorModel: ObservableObject {
         let camera = injector.camera
         camera.refreshCameras()
         let choices = camera.cameras + [.testPattern]
-        if let source {
+        if let source, source.hasPrefix("/") {
+            guard FileManager.default.fileExists(atPath: source) else { throw AgentFailure(.notFound, "There's no file at \(source).") }
+            guard NSImage(contentsOfFile: source) != nil else { throw AgentFailure(.failed, "\(source) isn't an image BetterSim can open.") }
+            camera.source = .image(URL(filePath: source))
+        } else if let source {
             let wantsPattern = source.localizedCaseInsensitiveContains("test") || source.localizedCaseInsensitiveContains("pattern")
             guard let match = wantsPattern ? .testPattern : camera.cameras.first(where: { $0.name.localizedCaseInsensitiveContains(source) }) else {
-                throw AgentFailure(.notFound, "There's no camera called \(source). Choose from: \(choices.map(\.name).joined(separator: ", ")).")
+                throw AgentFailure(.notFound, "There's no camera called \(source). Choose from \(choices.map(\.name).joined(separator: ", ")), or give the path of an image.")
             }
             camera.source = match
         }
         guard let on else {
-            return "The simulator camera shows \(camera.source.name). Cameras: \(choices.map(\.name).joined(separator: ", "))."
+            return "The simulator camera shows \(camera.source.name). Cameras: \(choices.map(\.name).joined(separator: ", ")). It can also show an image."
         }
         let device = try await DeviceResolver.resolve(udid ?? selectedUDID)
         guard let app = bundleID ?? selectedBundleID else { throw AgentFailure(.usage, "Say which app with --app BUNDLE_ID.") }

@@ -90,13 +90,13 @@ Relaunch your app with monitoring to see every URLSession request it makes, with
 
 ### Simulator camera
 
-The Simulator has no camera, so BetterSim lends your app one. Pick your Mac's camera, an iPhone through Continuity Camera, or a test pattern, and press **Use in** your app. BetterSim relaunches the app with a pretend camera that streams what you picked. Live previews, video frames and photos work with your app's existing AVFoundation code, and nothing in the app needs to change.
+The Simulator has no camera, so BetterSim lends your app one. Pick your Mac's camera, an iPhone through Continuity Camera, a test pattern or an image, and press **Use in** your app. BetterSim relaunches the app with a pretend camera that streams what you picked. Live previews, video frames, photos and code scanning work with your app's existing AVFoundation code, and nothing in the app needs to change.
 
 <p align="center">
-  <img src="docs/camera.png" alt="Trails' camera screen in the Simulator showing BetterSim's test pattern and a photo just taken, next to the Simulator camera card set to Test Pattern" width="820">
+  <img src="docs/camera.png" alt="Trails' trail sign scanner in the Simulator reading the QR code in BetterSim's test pattern, next to the Simulator camera card set to Test Pattern" width="820">
 </p>
 
-Apps that take photos with UIImagePickerController, including Expo's `ImagePicker.launchCameraAsync`, get a BetterSim camera screen in its place, with Retake and Use Photo. Scanning codes with AVCaptureMetadataOutput, recording movies, and VisionKit's DataScannerViewController don't work yet. Frames are 1280 × 720, and the front and back cameras show the same picture.
+Scanners built on AVCaptureMetadataOutput read QR codes and barcodes in whatever the camera shows. The test pattern has a QR code in the middle, and **Choose Image…** shows any picture, such as the code your app should accept. Apps that take photos with UIImagePickerController, including Expo's `ImagePicker.launchCameraAsync`, get a BetterSim camera screen in its place, with Retake and Use Photo. Recording movies and VisionKit's DataScannerViewController don't work yet. Frames are 1280 × 720, and the front and back cameras show the same picture.
 
 ### Device settings and accessibility
 
@@ -125,6 +125,7 @@ bettersim type "hello@example.com"
 bettersim wait --label "Welcome" --timeout 10
 bettersim preview                    # see and control the Simulator in a browser
 bettersim camera on --app com.example.trails --source "Test Pattern"
+bettersim camera --source qr.png     # show the camera an image, like a QR code
 ```
 
 To install it, choose **Install Command-Line Tool…** in BetterSim's menu bar menu. That links `bettersim` into `~/.local/bin`. Run `bettersim --help` for every command. Commands that read or touch the screen go through the running app, so they need BetterSim to be open and allowed to use Accessibility.
@@ -168,7 +169,7 @@ BetterSim works without any special permissions. Some features ask for one the f
 - **The panel** follows the Simulator's windows through the window list, and works out where the device screen is from the window's size. With Accessibility access, it asks the Simulator directly instead.
 - **Accessibility settings** are written to the device's own preferences, followed by the notification iOS apps listen for.
 - **The network monitor** relaunches your app with a small library that BetterSim builds for the Simulator. The library records the app's URLSession requests and hands them to BetterSim on your Mac. Only apps you relaunch from BetterSim are monitored.
-- **The simulator camera** relaunches your app with another small library. It shows AVFoundation a camera, and fills its previews, video frames and photos with frames BetterSim sends from your Mac. Your Mac's camera only runs while an app is using it.
+- **The simulator camera** relaunches your app with another small library. It shows AVFoundation a camera, and fills its previews, video frames and photos with frames BetterSim sends from your Mac. For apps that scan, it finds codes in those frames with Apple's Vision framework. Your Mac's camera only runs while an app is using it.
 - **Network speed** uses dummynet, the traffic shaper built into macOS. The Simulator shares your Mac's network, so this slows down the whole Mac until you switch it back or quit BetterSim.
 
 ## Contributing

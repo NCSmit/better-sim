@@ -1,13 +1,16 @@
 // BetterSim loads this into a simulator app through DYLD_INSERT_LIBRARIES when you turn on the simulator camera. The
 // Simulator has no camera, so AVFoundation is given a pretend one. Capture sessions that use it receive the frames
 // BetterSim streams from the Mac to 127.0.0.1:$BETTERSIM_CAMERA_PORT, each a 4-byte big-endian length and a JPEG.
-// Preview layers, video data outputs and photo outputs work. Without that variable the library does nothing.
+// Preview layers, video data outputs, photo outputs and metadata outputs that scan codes work. Without that variable
+// the library does nothing.
 
 #import <AVFoundation/AVFoundation.h>
 #import <CoreImage/CoreImage.h>
 #import <ImageIO/ImageIO.h>
 #import <QuartzCore/QuartzCore.h>
+#import <UIKit/UIKit.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+#import <Vision/Vision.h>
 #import <objc/runtime.h>
 #import <dlfcn.h>
 #import "BetterSimSwizzle.h"
@@ -433,6 +436,56 @@ static BetterSimConnection *BetterSimConnectionFor(id owner, BOOL preview) {
 }
 @end
 
+@interface BetterSimCodeObject : AVMetadataMachineReadableCodeObject
+@property (nonatomic, copy) AVMetadataObjectType codeType;
+@property (nonatomic, copy) NSString *code;
+@property (nonatomic) CGRect box;
+@property (nonatomic, copy) NSArray<NSDictionary *> *points;
+@property (nonatomic) CMTime when;
+@end
+
+@implementation BetterSimCodeObject
+- (AVMetadataObjectType)type { return self.codeType; }
+- (NSString *)stringValue { return self.code; }
+- (CGRect)bounds { return self.box; }
+- (NSArray<NSDictionary *> *)corners { return self.points; }
+- (CMTime)time { return self.when; }
+- (CMTime)duration { return kCMTimeInvalid; }
+- (CIBarcodeDescriptor *)descriptor { return nil; }
+- (NSInteger)groupID { return 0; }
+- (NSInteger)objectID { return 0; }
+- (BOOL)isFixedFocus { return NO; }
+- (NSString *)description { return [NSString stringWithFormat:@"<BetterSimCodeObject %@ %@>", self.codeType, self.code]; }
+- (BOOL)isEqual:(id)object { return self == object; }
+- (NSUInteger)hash { return (NSUInteger)(__bridge void *)self; }
+@end
+
+static NSArray<NSDictionary *> *BetterSimPoints(NSArray<NSValue *> *corners) {
+    NSMutableArray *points = [NSMutableArray array];
+    for (NSValue *corner in corners) {
+        CFDictionaryRef point = CGPointCreateDictionaryRepresentation(corner.CGPointValue);
+        [points addObject:(__bridge_transfer NSDictionary *)point];
+    }
+    return points;
+}
+
+static NSArray<NSValue *> *BetterSimCorners(CGRect rect) {
+    return @[[NSValue valueWithCGPoint:CGPointMake(CGRectGetMinX(rect), CGRectGetMinY(rect))], [NSValue valueWithCGPoint:CGPointMake(CGRectGetMaxX(rect), CGRectGetMinY(rect))],
+             [NSValue valueWithCGPoint:CGPointMake(CGRectGetMaxX(rect), CGRectGetMaxY(rect))], [NSValue valueWithCGPoint:CGPointMake(CGRectGetMinX(rect), CGRectGetMaxY(rect))]];
+}
+
+/// A scanned code, with its bounds and corners in the frame's own coordinates, from 0 to 1 with the origin at the top
+/// left of the picture as it's shown.
+static BetterSimCodeObject *BetterSimMakeCode(AVMetadataObjectType type, NSString *code, CGRect box, NSArray<NSValue *> *corners) {
+    BetterSimCodeObject *object = BetterSimMake(BetterSimCodeObject.class);
+    object.codeType = type;
+    object.code = code;
+    object.box = box;
+    object.points = BetterSimPoints(corners);
+    object.when = CMClockGetTime(CMClockGetHostTimeClock());
+    return object;
+}
+
 #pragma mark - Sessions
 
 static const void *BetterSimInputsKey = &BetterSimInputsKey;
@@ -443,6 +496,10 @@ static const void *BetterSimSettingsKey = &BetterSimSettingsKey;
 static const void *BetterSimPresetKey = &BetterSimPresetKey;
 static const void *BetterSimBusyKey = &BetterSimBusyKey;
 static const void *BetterSimContentKey = &BetterSimContentKey;
+static const void *BetterSimTypesKey = &BetterSimTypesKey;
+static const void *BetterSimInterestKey = &BetterSimInterestKey;
+static const void *BetterSimScanTimeKey = &BetterSimScanTimeKey;
+static const void *BetterSimScanBusyKey = &BetterSimScanBusyKey;
 
 static NSLock *BetterSimLock;
 static NSHashTable<AVCaptureSession *> *BetterSimRunningSessions;
@@ -643,6 +700,145 @@ static void BetterSimShow(CGImageRef frame, AVCaptureVideoPreviewLayer *layer, B
     CGImageRelease(shaped);
 }
 
+#pragma mark - Codes
+
+static NSDictionary<VNBarcodeSymbology, AVMetadataObjectType> *BetterSimSymbologies(void) {
+    static NSDictionary *symbologies;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        symbologies = @{
+            VNBarcodeSymbologyQR: AVMetadataObjectTypeQRCode,
+            VNBarcodeSymbologyAztec: AVMetadataObjectTypeAztecCode,
+            VNBarcodeSymbologyDataMatrix: AVMetadataObjectTypeDataMatrixCode,
+            VNBarcodeSymbologyPDF417: AVMetadataObjectTypePDF417Code,
+            VNBarcodeSymbologyEAN13: AVMetadataObjectTypeEAN13Code,
+            VNBarcodeSymbologyEAN8: AVMetadataObjectTypeEAN8Code,
+            VNBarcodeSymbologyUPCE: AVMetadataObjectTypeUPCECode,
+            VNBarcodeSymbologyCode128: AVMetadataObjectTypeCode128Code,
+            VNBarcodeSymbologyCode39: AVMetadataObjectTypeCode39Code,
+            VNBarcodeSymbologyCode39Checksum: AVMetadataObjectTypeCode39Mod43Code,
+            VNBarcodeSymbologyCode39FullASCII: AVMetadataObjectTypeCode39Code,
+            VNBarcodeSymbologyCode39FullASCIIChecksum: AVMetadataObjectTypeCode39Mod43Code,
+            VNBarcodeSymbologyCode93: AVMetadataObjectTypeCode93Code,
+            VNBarcodeSymbologyCode93i: AVMetadataObjectTypeCode93Code,
+            VNBarcodeSymbologyITF14: AVMetadataObjectTypeITF14Code,
+            VNBarcodeSymbologyI2of5: AVMetadataObjectTypeInterleaved2of5Code,
+            VNBarcodeSymbologyI2of5Checksum: AVMetadataObjectTypeInterleaved2of5Code,
+        }.mutableCopy;
+        if (@available(iOS 15.4, *)) {
+            [(NSMutableDictionary *)symbologies addEntriesFromDictionary:@{
+                VNBarcodeSymbologyCodabar: AVMetadataObjectTypeCodabarCode,
+                VNBarcodeSymbologyGS1DataBar: AVMetadataObjectTypeGS1DataBarCode,
+                VNBarcodeSymbologyGS1DataBarExpanded: AVMetadataObjectTypeGS1DataBarExpandedCode,
+                VNBarcodeSymbologyGS1DataBarLimited: AVMetadataObjectTypeGS1DataBarLimitedCode,
+                VNBarcodeSymbologyMicroQR: AVMetadataObjectTypeMicroQRCode,
+                VNBarcodeSymbologyMicroPDF417: AVMetadataObjectTypeMicroPDF417Code,
+            }];
+        }
+    });
+    return symbologies;
+}
+
+static NSArray<AVMetadataObjectType> *BetterSimCodeTypes(void) {
+    return [[NSSet setWithArray:BetterSimSymbologies().allValues].allObjects sortedArrayUsingSelector:@selector(compare:)];
+}
+
+/// Vision's barcode detectors expect the Neural Engine, which the Simulator doesn't have. Revisions 3 and 4 find
+/// nothing there, revision 2 works when it's told to use the CPU, and revision 1 just works. Nil means neither ran.
+static NSArray<VNBarcodeObservation *> *BetterSimDetectBarcodes(CGImageRef frame) {
+    static _Atomic NSUInteger working;
+    for (NSNumber *revision in @[@2, @1]) {
+        NSUInteger number = revision.unsignedIntegerValue;
+        if ((working && working != number) || ![VNDetectBarcodesRequest.supportedRevisions containsIndex:number]) continue;
+        VNDetectBarcodesRequest *request = [VNDetectBarcodesRequest new];
+        request.revision = number;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        request.usesCPUOnly = YES;
+#pragma clang diagnostic pop
+        VNImageRequestHandler *handler = [[VNImageRequestHandler alloc] initWithCGImage:frame options:@{}];
+        if ([handler performRequests:@[request] error:nil]) {
+            working = number;
+            return request.results ?: @[];
+        }
+    }
+    return nil;
+}
+
+static NSValue *BetterSimFlipped(CGPoint point) {
+    return [NSValue valueWithCGPoint:CGPointMake(point.x, 1 - point.y)];
+}
+
+/// Finds codes with Vision. Should Vision fail to run at all, QR codes are still found with Core Image.
+static NSArray<BetterSimCodeObject *> *BetterSimFindCodes(CGImageRef frame, NSSet<AVMetadataObjectType> *wanted, CGRect interest) {
+    NSMutableArray<BetterSimCodeObject *> *found = [NSMutableArray array];
+    NSArray<VNBarcodeObservation *> *observations = BetterSimDetectBarcodes(frame);
+    // A barcode comes back once for every line Vision read it on, and the camera reports it once.
+    NSMutableDictionary<NSArray *, BetterSimCodeObject *> *seen = [NSMutableDictionary dictionary];
+    for (VNBarcodeObservation *observation in observations) {
+        AVMetadataObjectType type = BetterSimSymbologies()[observation.symbology];
+        NSString *code = observation.payloadStringValue;
+        if (!type || !code || ![wanted containsObject:type]) continue;
+        CGRect box = observation.boundingBox;
+        box.origin.y = 1 - box.origin.y - box.size.height;
+        BetterSimCodeObject *earlier = seen[@[type, code]];
+        if (earlier) {
+            earlier.box = CGRectUnion(earlier.box, box);
+            earlier.points = BetterSimPoints(BetterSimCorners(earlier.box));
+            continue;
+        }
+        NSArray *corners = @[BetterSimFlipped(observation.topLeft), BetterSimFlipped(observation.topRight), BetterSimFlipped(observation.bottomRight), BetterSimFlipped(observation.bottomLeft)];
+        BetterSimCodeObject *object = BetterSimMakeCode(type, code, box, corners);
+        seen[@[type, code]] = object;
+        [found addObject:object];
+    }
+    if (!observations && [wanted containsObject:AVMetadataObjectTypeQRCode]) {
+        CGFloat width = CGImageGetWidth(frame), height = CGImageGetHeight(frame);
+        CIDetector *detector = [CIDetector detectorOfType:CIDetectorTypeQRCode context:nil options:@{CIDetectorAccuracy: CIDetectorAccuracyHigh}];
+        for (CIQRCodeFeature *feature in [detector featuresInImage:[CIImage imageWithCGImage:frame]]) {
+            if (!feature.messageString) continue;
+            CGPoint (^normal)(CGPoint) = ^CGPoint(CGPoint point) { return CGPointMake(point.x / width, 1 - point.y / height); };
+            CGRect box = CGRectMake(feature.bounds.origin.x / width, 1 - CGRectGetMaxY(feature.bounds) / height, feature.bounds.size.width / width, feature.bounds.size.height / height);
+            NSArray *corners = @[[NSValue valueWithCGPoint:normal(feature.topLeft)], [NSValue valueWithCGPoint:normal(feature.topRight)],
+                                 [NSValue valueWithCGPoint:normal(feature.bottomRight)], [NSValue valueWithCGPoint:normal(feature.bottomLeft)]];
+            [found addObject:BetterSimMakeCode(AVMetadataObjectTypeQRCode, feature.messageString, box, corners)];
+        }
+    }
+    NSIndexSet *outside = [found indexesOfObjectsPassingTest:^BOOL(BetterSimCodeObject *object, NSUInteger index, BOOL *stop) {
+        return !CGRectContainsPoint(interest, CGPointMake(CGRectGetMidX(object.box), CGRectGetMidY(object.box)));
+    }];
+    [found removeObjectsAtIndexes:outside];
+    return found;
+}
+
+/// Scans about ten times a second, one scan at a time, and only tells the app when there's a code to report.
+static void BetterSimScan(AVCaptureMetadataOutput *output, CGImageRef frame, BetterSimCaptureDevice *device) {
+    id<AVCaptureMetadataOutputObjectsDelegate> delegate = output.metadataObjectsDelegate;
+    dispatch_queue_t queue = output.metadataObjectsCallbackQueue;
+    NSArray<AVMetadataObjectType> *types = objc_getAssociatedObject(output, BetterSimTypesKey);
+    if (!delegate || !queue || types.count == 0 || ![delegate respondsToSelector:@selector(captureOutput:didOutputMetadataObjects:fromConnection:)]) return;
+    @synchronized (output) {
+        NSDate *last = objc_getAssociatedObject(output, BetterSimScanTimeKey);
+        if ([objc_getAssociatedObject(output, BetterSimScanBusyKey) boolValue] || (last && -last.timeIntervalSinceNow < 0.1)) return;
+        objc_setAssociatedObject(output, BetterSimScanTimeKey, [NSDate date], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(output, BetterSimScanBusyKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+    static dispatch_queue_t scanning;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ scanning = dispatch_queue_create("local.bettersim.camera.codes", DISPATCH_QUEUE_SERIAL); });
+    CGImageRef shaped = BetterSimCopyShaped(frame, device.videoZoomFactor, NO);
+    NSValue *interest = objc_getAssociatedObject(output, BetterSimInterestKey);
+    NSSet *wanted = [NSSet setWithArray:types];
+    BetterSimConnection *connection = BetterSimConnectionFor(output, NO);
+    dispatch_async(scanning, ^{
+        NSArray *codes = BetterSimFindCodes(shaped, wanted, interest ? interest.CGRectValue : CGRectMake(0, 0, 1, 1));
+        CGImageRelease(shaped);
+        @synchronized (output) { objc_setAssociatedObject(output, BetterSimScanBusyKey, @NO, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+        if (codes.count == 0) return;
+        dispatch_async(queue, ^{ [delegate captureOutput:output didOutputMetadataObjects:codes fromConnection:connection]; });
+    });
+}
+
 static void BetterSimDeliver(CGImageRef frame) {
     static atomic_bool previewPending;
     for (AVCaptureSession *session in BetterSimSessions()) {
@@ -650,6 +846,7 @@ static void BetterSimDeliver(CGImageRef frame) {
         if (!device) continue;
         for (AVCaptureOutput *output in session.outputs) {
             if ([output isKindOfClass:AVCaptureVideoDataOutput.class]) BetterSimFeed((AVCaptureVideoDataOutput *)output, frame, device);
+            if ([output isKindOfClass:AVCaptureMetadataOutput.class]) BetterSimScan((AVCaptureMetadataOutput *)output, frame, device);
         }
     }
     // Previews are drawn on the main thread, and skip a frame rather than queue up behind a busy one.
@@ -1029,6 +1226,71 @@ static void BetterSimInstallOutputs(void) {
     });
 }
 
+static void BetterSimInstallScanning(void) {
+    Class metadata = AVCaptureMetadataOutput.class;
+    __block IMP availableTypes = BetterSimReplace(metadata, @selector(availableMetadataObjectTypes), ^NSArray *(AVCaptureMetadataOutput *self) {
+        if (!BETTERSIM_INTERNAL && BetterSimUsesCamera(BetterSimSessionOf(self))) return BetterSimCodeTypes();
+        return ((NSArray *(*)(id, SEL))availableTypes)(self, @selector(availableMetadataObjectTypes));
+    });
+    // AVFoundation refuses every type without a real camera, so the types the app asks for are kept here instead.
+    __block IMP setTypes = BetterSimReplace(metadata, @selector(setMetadataObjectTypes:), ^(AVCaptureMetadataOutput *self, NSArray *types) {
+        objc_setAssociatedObject(self, BetterSimTypesKey, types, OBJC_ASSOCIATION_COPY_NONATOMIC);
+        if (BetterSimUsesCamera(BetterSimSessionOf(self))) return;
+        @try { ((void (*)(id, SEL, id))setTypes)(self, @selector(setMetadataObjectTypes:), types); } @catch (NSException *exception) {}
+    });
+    __block IMP types = BetterSimReplace(metadata, @selector(metadataObjectTypes), ^NSArray *(AVCaptureMetadataOutput *self) {
+        NSArray *wanted = objc_getAssociatedObject(self, BetterSimTypesKey);
+        if (wanted && !BETTERSIM_INTERNAL) return wanted;
+        return ((NSArray *(*)(id, SEL))types)(self, @selector(metadataObjectTypes));
+    });
+    __block IMP setInterest = BetterSimReplace(metadata, @selector(setRectOfInterest:), ^(AVCaptureMetadataOutput *self, CGRect rect) {
+        objc_setAssociatedObject(self, BetterSimInterestKey, [NSValue valueWithCGRect:rect], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        @try { ((void (*)(id, SEL, CGRect))setInterest)(self, @selector(setRectOfInterest:), rect); } @catch (NSException *exception) {}
+    });
+    __block IMP interest = BetterSimReplace(metadata, @selector(rectOfInterest), ^CGRect(AVCaptureMetadataOutput *self) {
+        NSValue *rect = objc_getAssociatedObject(self, BetterSimInterestKey);
+        if (rect && !BETTERSIM_INTERNAL) return rect.CGRectValue;
+        return ((CGRect (*)(id, SEL))interest)(self, @selector(rectOfInterest));
+    });
+}
+
+/// Where the frame sits in a preview layer, given its gravity. Points from 0 to 1 in the frame map onto this rect.
+static CGRect BetterSimFrameInLayer(AVCaptureVideoPreviewLayer *layer) {
+    CGRect bounds = layer.bounds;
+    CGImageRef latest = BetterSimCopyLatest();
+    CGSize frame = latest ? CGSizeMake(CGImageGetWidth(latest), CGImageGetHeight(latest)) : CGSizeMake(BetterSimWidth, BetterSimHeight);
+    if (latest) CGImageRelease(latest);
+    if ([layer.videoGravity isEqualToString:AVLayerVideoGravityResize] || frame.width <= 0 || frame.height <= 0) return bounds;
+    CGFloat scaleX = bounds.size.width / frame.width, scaleY = bounds.size.height / frame.height;
+    CGFloat scale = [layer.videoGravity isEqualToString:AVLayerVideoGravityResizeAspectFill] ? MAX(scaleX, scaleY) : MIN(scaleX, scaleY);
+    CGSize size = CGSizeMake(frame.width * scale, frame.height * scale);
+    return CGRectMake(CGRectGetMidX(bounds) - size.width / 2, CGRectGetMidY(bounds) - size.height / 2, size.width, size.height);
+}
+
+static BOOL BetterSimMirrored(AVCaptureVideoPreviewLayer *layer) {
+    BetterSimConnection *connection = BetterSimConnectionFor(layer, YES);
+    BetterSimCaptureDevice *device = BetterSimDeviceOf(BetterSimSessionOf(layer));
+    return connection.automaticallyAdjustsVideoMirroring ? device.position == AVCaptureDevicePositionFront : connection.isVideoMirrored;
+}
+
+static CGPoint BetterSimToLayer(AVCaptureVideoPreviewLayer *layer, CGPoint point) {
+    CGRect frame = BetterSimFrameInLayer(layer);
+    if (BetterSimMirrored(layer)) point.x = 1 - point.x;
+    return CGPointMake(frame.origin.x + point.x * frame.size.width, frame.origin.y + point.y * frame.size.height);
+}
+
+static CGPoint BetterSimFromLayer(AVCaptureVideoPreviewLayer *layer, CGPoint point) {
+    CGRect frame = BetterSimFrameInLayer(layer);
+    if (frame.size.width <= 0 || frame.size.height <= 0) return CGPointMake(0.5, 0.5);
+    CGPoint result = CGPointMake((point.x - frame.origin.x) / frame.size.width, (point.y - frame.origin.y) / frame.size.height);
+    if (BetterSimMirrored(layer)) result.x = 1 - result.x;
+    return result;
+}
+
+static CGRect BetterSimRect(CGPoint a, CGPoint b) {
+    return CGRectMake(MIN(a.x, b.x), MIN(a.y, b.y), fabs(a.x - b.x), fabs(a.y - b.y));
+}
+
 static void BetterSimInstallPreview(void) {
     Class preview = AVCaptureVideoPreviewLayer.class;
     __block IMP initWithSession = BetterSimReplace(preview, @selector(initWithSession:), ^id(AVCaptureVideoPreviewLayer *self, AVCaptureSession *session) {
@@ -1055,23 +1317,34 @@ static void BetterSimInstallPreview(void) {
     });
     __block IMP toDevice = BetterSimReplace(preview, @selector(captureDevicePointOfInterestForPoint:), ^CGPoint(AVCaptureVideoPreviewLayer *self, CGPoint point) {
         if (!BetterSimUsesCamera(BetterSimSessionOf(self))) return ((CGPoint (*)(id, SEL, CGPoint))toDevice)(self, @selector(captureDevicePointOfInterestForPoint:), point);
-        CGRect bounds = self.bounds;
-        return CGPointMake(bounds.size.width > 0 ? point.x / bounds.size.width : 0.5, bounds.size.height > 0 ? point.y / bounds.size.height : 0.5);
+        return BetterSimFromLayer(self, point);
     });
     __block IMP toLayer = BetterSimReplace(preview, @selector(pointForCaptureDevicePointOfInterest:), ^CGPoint(AVCaptureVideoPreviewLayer *self, CGPoint point) {
         if (!BetterSimUsesCamera(BetterSimSessionOf(self))) return ((CGPoint (*)(id, SEL, CGPoint))toLayer)(self, @selector(pointForCaptureDevicePointOfInterest:), point);
-        return CGPointMake(point.x * self.bounds.size.width, point.y * self.bounds.size.height);
+        return BetterSimToLayer(self, point);
     });
     __block IMP toRect = BetterSimReplace(preview, @selector(metadataOutputRectOfInterestForRect:), ^CGRect(AVCaptureVideoPreviewLayer *self, CGRect rect) {
         if (!BetterSimUsesCamera(BetterSimSessionOf(self))) return ((CGRect (*)(id, SEL, CGRect))toRect)(self, @selector(metadataOutputRectOfInterestForRect:), rect);
-        CGSize size = self.bounds.size;
-        if (size.width <= 0 || size.height <= 0) return CGRectMake(0, 0, 1, 1);
-        return CGRectMake(rect.origin.x / size.width, rect.origin.y / size.height, rect.size.width / size.width, rect.size.height / size.height);
+        return BetterSimRect(BetterSimFromLayer(self, rect.origin), BetterSimFromLayer(self, CGPointMake(CGRectGetMaxX(rect), CGRectGetMaxY(rect))));
     });
     __block IMP fromRect = BetterSimReplace(preview, @selector(rectForMetadataOutputRectOfInterest:), ^CGRect(AVCaptureVideoPreviewLayer *self, CGRect rect) {
         if (!BetterSimUsesCamera(BetterSimSessionOf(self))) return ((CGRect (*)(id, SEL, CGRect))fromRect)(self, @selector(rectForMetadataOutputRectOfInterest:), rect);
-        CGSize size = self.bounds.size;
-        return CGRectMake(rect.origin.x * size.width, rect.origin.y * size.height, rect.size.width * size.width, rect.size.height * size.height);
+        return BetterSimRect(BetterSimToLayer(self, rect.origin), BetterSimToLayer(self, CGPointMake(CGRectGetMaxX(rect), CGRectGetMaxY(rect))));
+    });
+    __block IMP transformed = BetterSimReplace(preview, @selector(transformedMetadataObjectForMetadataObject:), ^AVMetadataObject *(AVCaptureVideoPreviewLayer *self, AVMetadataObject *object) {
+        if (![object isKindOfClass:BetterSimCodeObject.class]) return ((id (*)(id, SEL, id))transformed)(self, @selector(transformedMetadataObjectForMetadataObject:), object);
+        BetterSimCodeObject *code = (BetterSimCodeObject *)object;
+        NSMutableArray *corners = [NSMutableArray array];
+        for (NSDictionary *point in code.points) {
+            CGPoint corner = CGPointZero;
+            CGPointMakeWithDictionaryRepresentation((__bridge CFDictionaryRef)point, &corner);
+            [corners addObject:[NSValue valueWithCGPoint:BetterSimToLayer(self, corner)]];
+        }
+        CGRect box = code.box;
+        CGRect bounds = BetterSimRect(BetterSimToLayer(self, box.origin), BetterSimToLayer(self, CGPointMake(CGRectGetMaxX(box), CGRectGetMaxY(box))));
+        BetterSimCodeObject *shown = BetterSimMakeCode(code.codeType, code.code, bounds, corners);
+        shown.when = code.when;
+        return shown;
     });
 }
 
@@ -1088,6 +1361,7 @@ static void BetterSimCameraLoad(void) {
         BetterSimInstallDevices();
         BetterSimInstallSession();
         BetterSimInstallOutputs();
+        BetterSimInstallScanning();
         BetterSimInstallPreview();
         NSThread *thread = [[NSThread alloc] initWithBlock:^{ BetterSimStream(); }];
         thread.name = @"local.bettersim.camera";

@@ -130,6 +130,8 @@ struct SimulatorCameraCard: View {
                     }
                     if !camera.cameras.isEmpty { Divider() }
                     Button(SimulatorCamera.Source.testPattern.name) { camera.source = .testPattern }
+                    Divider()
+                    Button("Choose Image…") { camera.chooseImage() }
                 }
             }
             let name = model.app?.name ?? "the App"
@@ -137,7 +139,7 @@ struct SimulatorCameraCard: View {
                 model.toggleCamera()
             }
             .disabled(model.app == nil)
-            .help("Relaunch the app with a camera that shows this. Previews, video frames and photos work.")
+            .help("Relaunch the app with a camera that shows this. Previews, video frames, photos and code scanning work.")
             Note(text: "The app is relaunched with a camera that shows this.")
         }
         .onAppear { camera.refreshCameras() }

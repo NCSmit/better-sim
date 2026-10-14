@@ -1,7 +1,9 @@
 import CoreImage
+import CoreImage.CIFilterBuiltins
 import Foundation
 import ImageIO
 import Testing
+import UniformTypeIdentifiers
 @testable import BetterSim
 
 @MainActor
@@ -39,6 +41,57 @@ struct SimulatorCameraTests {
         let later = try #require(TestPatternProducer.draw(frame: 30, note: "Waiting for camera access"))
         #expect(first != later)
         #expect(Self.size(of: first).map { [$0.0, $0.1] } == [1280, 720])
+    }
+
+    static func codes(in jpeg: Data) -> [String] {
+        guard let image = CIImage(data: jpeg),
+              let detector = CIDetector(ofType: CIDetectorTypeQRCode, context: nil, options: [CIDetectorAccuracy: CIDetectorAccuracyHigh])
+        else { return [] }
+        return detector.features(in: image).compactMap { ($0 as? CIQRCodeFeature)?.messageString }
+    }
+
+    static func qrCode(saying message: String) throws -> CGImage {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(message.utf8)
+        let output = try #require(filter.outputImage)
+        return try #require(CIContext().createCGImage(output, from: output.extent))
+    }
+
+    static func code128(saying message: String) throws -> CGImage {
+        let filter = CIFilter.code128BarcodeGenerator()
+        filter.message = Data(message.utf8)
+        filter.quietSpace = 10
+        filter.barcodeHeight = 60
+        let output = try #require(filter.outputImage).transformed(by: CGAffineTransform(scaleX: 4, y: 4))
+        return try #require(CIContext().createCGImage(output, from: output.extent))
+    }
+
+    static func writePNG(_ image: CGImage, to file: URL) throws {
+        let destination = try #require(CGImageDestinationCreateWithURL(file as CFURL, UTType.png.identifier as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, image, nil)
+        try #require(CGImageDestinationFinalize(destination))
+    }
+
+    @Test func testPatternHasAQRCodeToScan() throws {
+        let frame = try #require(TestPatternProducer.draw(frame: 0, note: "Waiting for camera access"))
+        #expect(Self.codes(in: frame) == [SimulatorCamera.testCode])
+    }
+
+    @Test func showsAnImageTheCodeInItStillScans() throws {
+        let frame = try #require(StillImageProducer.draw(try Self.qrCode(saying: "hello from an image")))
+        #expect(Self.size(of: frame).map { [$0.0, $0.1] } == [1280, 720])
+        #expect(Self.codes(in: frame) == ["hello from an image"])
+    }
+
+    @Test func remembersAChosenImageWhileItExists() throws {
+        let defaults = Self.scratchDefaults()
+        let file = FileManager.default.temporaryDirectory.appending(path: "bettersim-\(UUID().uuidString).png")
+        try Self.writePNG(try Self.qrCode(saying: "saved"), to: file)
+        let camera = SimulatorCamera(defaults: defaults)
+        camera.source = .image(file)
+        #expect(SimulatorCamera(defaults: defaults).source == .image(file))
+        try FileManager.default.removeItem(at: file)
+        #expect(SimulatorCamera(defaults: defaults).source != .image(file), "a deleted image falls back to a camera or the test pattern")
     }
 
     @Test func fillsAnyCameraFrameTo720p() {
@@ -114,8 +167,9 @@ struct ScratchCameraTests {
     #import <ImageIO/ImageIO.h>
     #import <QuartzCore/QuartzCore.h>
 
-    @interface Receiver : NSObject <AVCaptureVideoDataOutputSampleBufferDelegate, AVCapturePhotoCaptureDelegate>
+    @interface Receiver : NSObject <AVCaptureVideoDataOutputSampleBufferDelegate, AVCapturePhotoCaptureDelegate, AVCaptureMetadataOutputObjectsDelegate>
     @property (atomic) NSInteger frames;
+    @property (atomic) AVMetadataMachineReadableCodeObject *code;
     @property (atomic) size_t width, height;
     @property (atomic) BOOL lit;
     @property (atomic) NSData *photo;
@@ -127,12 +181,15 @@ struct ScratchCameraTests {
         CVPixelBufferRef buffer = CMSampleBufferGetImageBuffer(sampleBuffer);
         CVPixelBufferLockBaseAddress(buffer, kCVPixelBufferLock_ReadOnly);
         size_t width = CVPixelBufferGetWidth(buffer), height = CVPixelBufferGetHeight(buffer), row = CVPixelBufferGetBytesPerRow(buffer);
-        uint8_t *pixel = (uint8_t *)CVPixelBufferGetBaseAddress(buffer) + (height / 2) * row + (width / 2) * 4;
+        uint8_t *pixel = (uint8_t *)CVPixelBufferGetBaseAddress(buffer) + (height / 16) * row + (width / 8) * 4;
         self.lit = pixel[0] + pixel[1] + pixel[2] > 60;
         CVPixelBufferUnlockBaseAddress(buffer, kCVPixelBufferLock_ReadOnly);
         self.width = width;
         self.height = height;
         self.frames += 1;
+    }
+    - (void)captureOutput:(AVCaptureOutput *)output didOutputMetadataObjects:(NSArray<__kindof AVMetadataObject *> *)objects fromConnection:(AVCaptureConnection *)connection {
+        if ([objects.firstObject isKindOfClass:AVMetadataMachineReadableCodeObject.class]) self.code = objects.firstObject;
     }
     - (void)captureOutput:(AVCapturePhotoOutput *)output didFinishProcessingPhoto:(AVCapturePhoto *)photo error:(NSError *)error {
         self.photo = photo.fileDataRepresentation;
@@ -147,9 +204,30 @@ struct ScratchCameraTests {
         while ([end timeIntervalSinceNow] > 0 && !(until && until())) CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.05, false);
     }
 
-    int main(void) {
+    /// Only scans, for the one kind of code named on the command line.
+    static void ScanFor(AVMetadataObjectType type) {
+        AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
+        AVCaptureDeviceInput *input = [AVCaptureDeviceInput deviceInputWithDevice:device error:nil];
+        AVCaptureSession *session = [AVCaptureSession new];
+        if ([session canAddInput:input]) [session addInput:input];
+        AVCaptureMetadataOutput *metadata = [AVCaptureMetadataOutput new];
+        if ([session canAddOutput:metadata]) [session addOutput:metadata];
+        Receiver *receiver = [Receiver new];
+        [metadata setMetadataObjectsDelegate:receiver queue:dispatch_get_main_queue()];
+        metadata.metadataObjectTypes = @[type];
+        [session startRunning];
+        Spin(5, ^BOOL { return receiver.code != nil; });
+        printf("scanned %s %s\n", receiver.code.type.UTF8String ?: "none", receiver.code.stringValue.UTF8String ?: "none");
+        [session stopRunning];
+    }
+
+    int main(int argc, char **argv) {
         setvbuf(stdout, NULL, _IONBF, 0);
         @autoreleasepool {
+            if (argc > 1) {
+                ScanFor(@(argv[1]));
+                return 0;
+            }
             AVCaptureDevice *device = [AVCaptureDevice defaultDeviceWithDeviceType:AVCaptureDeviceTypeBuiltInWideAngleCamera mediaType:AVMediaTypeVideo position:AVCaptureDevicePositionBack];
             printf("device %s\n", device.localizedName.UTF8String ?: "none");
             AVCaptureDeviceInput *input = [AVCaptureDeviceInput deviceInputWithDevice:device error:nil];
@@ -165,9 +243,15 @@ struct ScratchCameraTests {
             AVCapturePhotoOutput *photo = [AVCapturePhotoOutput new];
             if ([session canAddOutput:photo]) [session addOutput:photo];
             photo.highResolutionCaptureEnabled = YES;
+            AVCaptureMetadataOutput *metadata = [AVCaptureMetadataOutput new];
+            if ([session canAddOutput:metadata]) [session addOutput:metadata];
+            [metadata setMetadataObjectsDelegate:receiver queue:dispatch_get_main_queue()];
+            printf("qr available %d\n", [metadata.availableMetadataObjectTypes containsObject:AVMetadataObjectTypeQRCode]);
+            metadata.metadataObjectTypes = @[AVMetadataObjectTypeQRCode];
             [session commitConfiguration];
             AVCaptureVideoPreviewLayer *preview = [AVCaptureVideoPreviewLayer layerWithSession:session];
             preview.frame = CGRectMake(0, 0, 390, 844);
+            preview.videoGravity = AVLayerVideoGravityResizeAspectFill;
             [session startRunning];
             printf("running %d\n", session.isRunning);
             Spin(10, ^BOOL { return receiver.frames >= 20; });
@@ -185,6 +269,18 @@ struct ScratchCameraTests {
             printf("photo %zux%zu\n", image ? CGImageGetWidth(image) : 0, image ? CGImageGetHeight(image) : 0);
             if (image) CGImageRelease(image);
             if (source) CFRelease(source);
+            Spin(5, ^BOOL { return receiver.code != nil; });
+            printf("qr %s %s\n", receiver.code.type.UTF8String ?: "none", receiver.code.stringValue.UTF8String ?: "none");
+            AVMetadataMachineReadableCodeObject *shown = receiver.code ? (id)[preview transformedMetadataObjectForMetadataObject:receiver.code] : nil;
+            printf("qr on screen %s\n", shown && CGRectContainsPoint(shown.bounds, CGPointMake(195, 422)) && shown.corners.count == 4 ? "middle" : "elsewhere");
+            metadata.rectOfInterest = CGRectMake(0, 0, 0.2, 0.2);
+            Spin(0.5, nil);
+            receiver.code = nil;
+            Spin(1.5, nil);
+            printf("qr outside interest %s\n", receiver.code ? "seen" : "none");
+            metadata.rectOfInterest = [preview metadataOutputRectOfInterestForRect:CGRectMake(95, 322, 200, 200)];
+            Spin(5, ^BOOL { return receiver.code != nil; });
+            printf("qr inside interest %s\n", receiver.code ? "seen" : "none");
             [session stopRunning];
             printf("stopped %d\n", !session.isRunning);
         }
@@ -192,7 +288,7 @@ struct ScratchCameraTests {
     }
     """#
 
-    static let frameworks = ["AVFoundation", "CoreGraphics", "CoreImage", "CoreMedia", "CoreVideo", "ImageIO", "QuartzCore", "UIKit", "UniformTypeIdentifiers"]
+    static let frameworks = ["AVFoundation", "CoreGraphics", "CoreImage", "CoreMedia", "CoreVideo", "ImageIO", "QuartzCore", "UIKit", "UniformTypeIdentifiers", "Vision"]
         .flatMap { ["-framework", $0] }
 
     @Test(.timeLimit(.minutes(2))) func givesAToolOnTheSimulatorACamera() async throws {
@@ -215,19 +311,28 @@ struct ScratchCameraTests {
         camera.source = .testPattern
         let port = try await camera.start()
         defer { camera.stop() }
-        let output = String(decoding: try await Simctl.run(
-            ["spawn", udid, tool.path(percentEncoded: false)],
-            environment: [
-                "SIMCTL_CHILD_DYLD_INSERT_LIBRARIES": library.path(percentEncoded: false),
-                "SIMCTL_CHILD_BETTERSIM_CAMERA_PORT": String(port),
-            ]
-        ), as: UTF8.self)
+        let environment = [
+            "SIMCTL_CHILD_DYLD_INSERT_LIBRARIES": library.path(percentEncoded: false),
+            "SIMCTL_CHILD_BETTERSIM_CAMERA_PORT": String(port),
+        ]
+        let output = String(decoding: try await Simctl.run(["spawn", udid, tool.path(percentEncoded: false)], environment: environment), as: UTF8.self)
         #expect(output.contains("device Back Camera"), "\(output)")
         #expect(output.contains("running 1"))
         #expect(output.contains("frames yes 1280x720 lit 1"))
         #expect(output.contains("preview yes"))
         #expect(output.contains("portrait 406x720"))
         #expect(output.contains("photo 1280x720"))
+        #expect(output.contains("qr available 1"))
+        #expect(output.contains("qr org.iso.QRCode \(SimulatorCamera.testCode)"))
+        #expect(output.contains("qr on screen middle"))
+        #expect(output.contains("qr outside interest none"))
+        #expect(output.contains("qr inside interest seen"))
         #expect(output.contains("stopped 1"))
+
+        let barcode = folder.appending(path: "barcode.png")
+        try SimulatorCameraTests.writePNG(try SimulatorCameraTests.code128(saying: "BETTERSIM-128"), to: barcode)
+        camera.source = .image(barcode)
+        let scanned = String(decoding: try await Simctl.run(["spawn", udid, tool.path(percentEncoded: false), "org.iso.Code128"], environment: environment), as: UTF8.self)
+        #expect(scanned.contains("scanned org.iso.Code128 BETTERSIM-128"), "\(scanned)")
     }
 }

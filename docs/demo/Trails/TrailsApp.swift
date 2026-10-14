@@ -43,6 +43,7 @@ struct ExploreView: View {
     @State private var trails = Trail.samples
     @State private var search = ""
     @State private var showsCamera = UserDefaults.standard.bool(forKey: "openCamera")
+    @State private var showsScanner = UserDefaults.standard.bool(forKey: "openScanner")
     @State private var showsPicker = UserDefaults.standard.bool(forKey: "openPicker")
     @State private var photo: UIImage?
     @State private var presenter = PickerPresenter()
@@ -80,6 +81,7 @@ struct ExploreView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Menu {
                         Button("Camera", systemImage: "camera") { showsCamera = true }
+                        Button("Scan Trail Sign", systemImage: "qrcode.viewfinder") { showsScanner = true }
                         Button("Photo Picker", systemImage: "photo.badge.plus") { showsPicker = true }
                         Button("Photo Picker, Presented", systemImage: "rectangle.portrait.on.rectangle.portrait") { presentPicker() }
                     } label: {
@@ -92,6 +94,7 @@ struct ExploreView: View {
             }
         }
         .fullScreenCover(isPresented: $showsCamera) { CameraScreen() }
+        .fullScreenCover(isPresented: $showsScanner) { ScannerScreen() }
         .fullScreenCover(isPresented: $showsPicker) { PhotoPicker(photo: $photo).ignoresSafeArea() }
         .task {
             if UserDefaults.standard.bool(forKey: "openPresentedPicker") {
@@ -317,6 +320,153 @@ struct CameraPreview: UIViewRepresentable {
         let view = PreviewView()
         view.previewLayer.session = session
         view.previewLayer.videoGravity = .resizeAspectFill
+        return view
+    }
+
+    func updateUIView(_ view: PreviewView, context: Context) {}
+}
+
+/// Scan the code on a trail sign, the way most scanners do: a metadata output, a viewfinder that sets its rect of
+/// interest, and an outline drawn where the preview shows the code.
+struct ScannerScreen: View {
+    @StateObject private var scanner = Scanner()
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            ScannerPreview(scanner: scanner).ignoresSafeArea()
+            VStack {
+                HStack {
+                    Text("Scan a trail sign")
+                        .font(.footnote.weight(.semibold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(.ultraThinMaterial, in: Capsule())
+                    Spacer()
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark").font(.headline).padding(10).background(.ultraThinMaterial, in: Circle())
+                    }
+                }
+                .padding()
+                Spacer()
+                HStack(spacing: 12) {
+                    Image(systemName: scanner.code == nil ? "qrcode.viewfinder" : "checkmark.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(scanner.code == nil ? .white : .green)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(scanner.code == nil ? "Looking for a code" : "Trail sign found").font(.subheadline.weight(.semibold))
+                        Text(scanner.code ?? "Hold the sign inside the square").font(.footnote).foregroundStyle(.white.opacity(0.75)).lineLimit(2)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(16)
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .padding(.horizontal)
+                .padding(.bottom, 24)
+            }
+            .foregroundStyle(.white)
+        }
+        .onAppear { scanner.start() }
+        .onDisappear { scanner.stop() }
+    }
+}
+
+final class Scanner: NSObject, ObservableObject, AVCaptureMetadataOutputObjectsDelegate {
+    let session = AVCaptureSession()
+    private let output = AVCaptureMetadataOutput()
+    private let queue = DispatchQueue(label: "scanner")
+    @Published var code: String?
+    var onCode: ((AVMetadataMachineReadableCodeObject) -> Void)?
+
+    func start() {
+        queue.async { [self] in
+            guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
+                  let input = try? AVCaptureDeviceInput(device: device)
+            else { return }
+            session.beginConfiguration()
+            if session.canAddInput(input) { session.addInput(input) }
+            if session.canAddOutput(output) { session.addOutput(output) }
+            output.setMetadataObjectsDelegate(self, queue: .main)
+            output.metadataObjectTypes = [.qr, .code128, .ean13, .ean8].filter(output.availableMetadataObjectTypes.contains)
+            session.commitConfiguration()
+            session.startRunning()
+        }
+    }
+
+    func stop() {
+        queue.async { [self] in session.stopRunning() }
+    }
+
+    func setRectOfInterest(_ rect: CGRect) {
+        queue.async { [self] in output.rectOfInterest = rect }
+    }
+
+    func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput objects: [AVMetadataObject], from connection: AVCaptureConnection) {
+        guard let found = objects.first as? AVMetadataMachineReadableCodeObject, let value = found.stringValue else { return }
+        code = value
+        onCode?(found)
+    }
+}
+
+struct ScannerPreview: UIViewRepresentable {
+    let scanner: Scanner
+
+    final class PreviewView: UIView {
+        override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
+        var previewLayer: AVCaptureVideoPreviewLayer { layer as! AVCaptureVideoPreviewLayer }
+        let viewfinder = CAShapeLayer()
+        let outline = CAShapeLayer()
+        var onLayout: ((CGRect) -> Void)?
+        private var lastSeen = Date.distantPast
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            viewfinder.fillRule = .evenOdd
+            viewfinder.fillColor = UIColor.black.withAlphaComponent(0.45).cgColor
+            outline.strokeColor = UIColor.systemGreen.cgColor
+            outline.fillColor = UIColor.systemGreen.withAlphaComponent(0.15).cgColor
+            outline.lineWidth = 4
+            outline.lineJoin = .round
+            layer.addSublayer(viewfinder)
+            layer.addSublayer(outline)
+        }
+
+        required init?(coder: NSCoder) { fatalError() }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            let side = min(bounds.width, bounds.height) * 0.68
+            let square = CGRect(x: bounds.midX - side / 2, y: bounds.midY - side / 2, width: side, height: side)
+            let mask = UIBezierPath(rect: bounds)
+            mask.append(UIBezierPath(roundedRect: square, cornerRadius: 24))
+            viewfinder.frame = bounds
+            viewfinder.path = mask.cgPath
+            outline.frame = bounds
+            onLayout?(previewLayer.metadataOutputRectConverted(fromLayerRect: square))
+        }
+
+        func show(_ code: AVMetadataMachineReadableCodeObject) {
+            guard let shown = previewLayer.transformedMetadataObject(for: code) as? AVMetadataMachineReadableCodeObject, let first = shown.corners.first else { return }
+            let path = UIBezierPath()
+            path.move(to: first)
+            for corner in shown.corners.dropFirst() { path.addLine(to: corner) }
+            path.close()
+            outline.path = path.cgPath
+            lastSeen = .now
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                guard let self, Date.now.timeIntervalSince(self.lastSeen) >= 0.5 else { return }
+                self.outline.path = nil
+            }
+        }
+    }
+
+    func makeUIView(context: Context) -> PreviewView {
+        let view = PreviewView()
+        view.previewLayer.session = scanner.session
+        view.previewLayer.videoGravity = .resizeAspectFill
+        view.onLayout = { [scanner] in scanner.setRectOfInterest($0) }
+        scanner.onCode = { [weak view] in view?.show($0) }
         return view
     }
 

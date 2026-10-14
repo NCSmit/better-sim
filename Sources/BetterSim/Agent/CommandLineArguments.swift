@@ -166,7 +166,7 @@ struct CLIInvocation: Equatable {
             guard let port = Int(text), (1...65535).contains(port) else { throw usage("--port needs a number from 1 to 65535.") }
             return .preview(port: port)
         case "camera":
-            guard words.count <= 1 else { throw usage("Use bettersim camera [on|off] [--app BUNDLE_ID] [--source NAME].") }
+            guard words.count <= 1 else { throw usage("Use bettersim camera [on|off] [--app BUNDLE_ID] [--source NAME|IMAGE].") }
             let on: Bool? = switch words.first {
             case nil: nil
             case "on": true
@@ -234,10 +234,11 @@ struct CLIInvocation: Equatable {
       preview [--port N]                  Show the screen in a web browser, and print the page's private address.
 
     App commands. These need BetterSim to be open:
-      camera [on|off] [--app BUNDLE_ID] [--source NAME]
+      camera [on|off] [--app BUNDLE_ID] [--source NAME|IMAGE]
                                           Relaunch an app with the simulator camera, or without it. --source picks
-                                          a Mac camera by name, or the test pattern. With neither on nor off, lists
-                                          the cameras. Without --app, it's the app selected in BetterSim's panel.
+                                          a Mac camera by name, the test pattern, or an image to show, such as a QR
+                                          code. With neither on nor off, lists the cameras. Without --app, it's the
+                                          app selected in BetterSim's panel.
 
     Options:
       --udid UDID   Use this simulator. Otherwise it's the one the Simulator app shows.

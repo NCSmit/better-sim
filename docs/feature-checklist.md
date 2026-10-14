@@ -70,5 +70,5 @@ This compares BetterSim with the features RocketSim lists in its public document
 | Command-line tool for AI agents | ✅ / 🔒 | Simulator commands are tested. ui, tap, swipe, type and wait need Accessibility. |
 | Browser preview | ✅ | Local only, protected by a token. Click to tap and drag to swipe, which need Accessibility. |
 | Side window, menu bar menu and global shortcuts | ✅ | |
-| Simulator camera | ✅ | Your Mac's camera, an iPhone through Continuity Camera, or a test pattern. Previews, video frames and photos work, with no changes to the app, and so does UIImagePickerController's camera, including Expo's image picker. Code scanning, movie recording and DataScannerViewController don't yet. |
+| Simulator camera | ✅ | Your Mac's camera, an iPhone through Continuity Camera, a test pattern or an image. Previews, video frames, photos and QR code and barcode scanning with AVCaptureMetadataOutput work, with no changes to the app, and so does UIImagePickerController's camera, including Expo's image picker. Movie recording and DataScannerViewController don't yet. |
 | Team build insights | ⚠️ | Needs a shared server, which is out of scope for a local tool. |

@@ -14,6 +14,15 @@ struct CommandLineEntryTests {
         #expect(CommandLineTool.arguments(from: [app, "-NSDocumentRevisionsDebugMode", "YES"]) == nil)
         #expect(CommandLineTool.arguments(from: ["/tmp/BetterSim", "screenshot"]) == nil)
     }
+
+    @Test func sendsCameraImagesAsFullPaths() throws {
+        let image = FileManager.default.temporaryDirectory.appending(path: "bettersim-\(UUID().uuidString).png")
+        try Data().write(to: image)
+        defer { try? FileManager.default.removeItem(at: image) }
+        #expect(CommandLineTool.fullPathIfFile(image.path) == image.standardizedFileURL.path)
+        #expect(CommandLineTool.fullPathIfFile(".") == URL.currentDirectory().standardizedFileURL.path)
+        #expect(CommandLineTool.fullPathIfFile("FaceTime HD Camera") == "FaceTime HD Camera")
+    }
 }
 
 struct CommandLineParsingTests {
@@ -79,6 +88,7 @@ struct CommandLineParsingTests {
         #expect(try command("camera", "on", "--app", "com.example.trails") == .camera(on: true, bundleID: "com.example.trails", source: nil))
         #expect(try command("camera", "off") == .camera(on: false, bundleID: nil, source: nil))
         #expect(try command("camera", "on", "--source", "Test Pattern") == .camera(on: true, bundleID: nil, source: "Test Pattern"))
+        #expect(try command("camera", "on", "--source", "codes/qr.png") == .camera(on: true, bundleID: nil, source: "codes/qr.png"))
         #expect(throws: AgentFailure.self) { try command("camera", "maybe") }
         #expect(throws: AgentFailure.self) { try command("camera", "on", "now") }
     }

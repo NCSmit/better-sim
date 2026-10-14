@@ -314,14 +314,12 @@ enum DocImages {
     /// Trails' camera screen with the simulator camera on, showing the test pattern and a photo just taken with it.
     private static func cameraImage(model: SimulatorModel, udid: String, profile: DeviceProfile, folder: URL) async throws {
         guard let injector = model.injector else { return }
-        try await AppDefaults.write(.bool(true), for: "openCamera", bundleID: demoApp, udid: udid)
-        try await AppDefaults.write(.bool(true), for: "takePhoto", bundleID: demoApp, udid: udid)
+        try await AppDefaults.write(.bool(true), for: "openScanner", bundleID: demoApp, udid: udid)
         try await injector.relaunch(demoApp, on: udid, with: .camera)
         try await Task.sleep(for: .seconds(4))
         let shot = try await screen(of: udid)
         let card = try await cutOut(SimulatorCameraCard(model: model, camera: injector.camera))
-        try await AppDefaults.delete("openCamera", bundleID: demoApp, udid: udid)
-        try await AppDefaults.delete("takePhoto", bundleID: demoApp, udid: udid)
+        try await AppDefaults.delete("openScanner", bundleID: demoApp, udid: udid)
         try await injector.relaunch(demoApp, on: udid, with: [])
         injector.camera.stop()
         guard let framed = Framer.frame(shot, profile: profile) else { return }
