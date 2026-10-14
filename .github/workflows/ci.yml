@@ -9,6 +9,7 @@ jobs:
   test:
     name: Build and test
     runs-on: macos-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
 
@@ -21,7 +22,13 @@ jobs:
         run: ./build.sh
 
       - name: Test the app
-        run: swift test
+        shell: bash
+        run: swift test 2>&1 | tee test.log
+        timeout-minutes: 12
+
+      - name: Show where the tests stopped
+        if: failure()
+        run: grep -E "started|passed|failed" test.log | tail -40
 
       - name: Check the build script
         run: bash -n build.sh

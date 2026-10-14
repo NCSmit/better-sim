@@ -77,6 +77,7 @@ enum AppPreviewExporter {
         let context = CIContext()
         let duration = timeRange.duration.seconds
         let frames = frameCount(duration: duration)
+        var silence = try SilentAudio()
         var pending = source.copyNextSampleBuffer()
         var current: CVPixelBuffer?
         for frame in 0..<frames {
@@ -94,11 +95,12 @@ enum AppPreviewExporter {
                 image.transformed(by: CGAffineTransform(scaleX: size.width / image.extent.width, y: size.height / image.extent.height)),
                 to: scaled
             )
-            while !videoInput.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(2)) }
+            try await waitUntilReady(videoInput, of: writer)
             adaptor.append(scaled, withPresentationTime: CMTime(value: CMTimeValue(frame), timescale: frameRate))
+            try await silence.append(until: Double(frame + 1) / Double(frameRate), to: audioInput, of: writer)
         }
         videoInput.markAsFinished()
-        try await writeSilence(seconds: Double(frames) / Double(frameRate), to: audioInput)
+        try await silence.append(until: Double(frames) / Double(frameRate), to: audioInput, of: writer)
         audioInput.markAsFinished()
         reader.cancelReading()
         await writer.finishWriting()
@@ -106,37 +108,56 @@ enum AppPreviewExporter {
         return Double(frames) / Double(frameRate)
     }
 
-    private static func writeSilence(seconds: Double, to input: AVAssetWriterInput) async throws {
-        let rate = 44_100.0
-        let chunk = 1024
-        var description = AudioStreamBasicDescription(
-            mSampleRate: rate, mFormatID: kAudioFormatLinearPCM, mFormatFlags: kLinearPCMFormatFlagIsSignedInteger | kLinearPCMFormatFlagIsPacked,
-            mBytesPerPacket: 4, mFramesPerPacket: 1, mBytesPerFrame: 4, mChannelsPerFrame: 2, mBitsPerChannel: 16, mReserved: 0
-        )
-        var format: CMAudioFormatDescription?
-        CMAudioFormatDescriptionCreate(allocator: nil, asbd: &description, layoutSize: 0, layout: nil, magicCookieSize: 0, magicCookie: nil, extensions: nil, formatDescriptionOut: &format)
-        guard let format else { throw Failure(errorDescription: "The audio track couldn't be made.") }
-        let total = Int(seconds * rate)
-        var written = 0
-        while written < total {
-            let frames = min(chunk, total - written)
-            var block: CMBlockBuffer?
-            CMBlockBufferCreateWithMemoryBlock(
-                allocator: nil, memoryBlock: nil, blockLength: frames * 4, blockAllocator: nil, customBlockSource: nil,
-                offsetToData: 0, dataLength: frames * 4, flags: kCMBlockBufferAssureMemoryNowFlag, blockBufferOut: &block
+    /// An input never becomes ready again once the writer has failed, so waiting has to watch for that too.
+    private static func waitUntilReady(_ input: AVAssetWriterInput, of writer: AVAssetWriter) async throws {
+        while !input.isReadyForMoreMediaData {
+            guard writer.status == .writing else {
+                throw writer.error ?? Failure(errorDescription: "The app preview couldn't be written.")
+            }
+            try await Task.sleep(for: .milliseconds(2))
+        }
+    }
+
+    /// The silent audio track, appended alongside the video. The writer interleaves the two tracks and stops taking
+    /// video once the audio falls about two seconds behind, so writing all the video first never finishes.
+    private struct SilentAudio {
+        static let rate = 44_100.0
+        private let format: CMAudioFormatDescription
+        private var written = 0
+
+        init() throws {
+            var description = AudioStreamBasicDescription(
+                mSampleRate: Self.rate, mFormatID: kAudioFormatLinearPCM, mFormatFlags: kLinearPCMFormatFlagIsSignedInteger | kLinearPCMFormatFlagIsPacked,
+                mBytesPerPacket: 4, mFramesPerPacket: 1, mBytesPerFrame: 4, mChannelsPerFrame: 2, mBitsPerChannel: 16, mReserved: 0
             )
-            guard let block else { break }
-            CMBlockBufferFillDataBytes(with: 0, blockBuffer: block, offsetIntoDestination: 0, dataLength: frames * 4)
-            var sample: CMSampleBuffer?
-            CMAudioSampleBufferCreateReadyWithPacketDescriptions(
-                allocator: nil, dataBuffer: block, formatDescription: format, sampleCount: frames,
-                presentationTimeStamp: CMTime(value: CMTimeValue(written), timescale: CMTimeScale(rate)),
-                packetDescriptions: nil, sampleBufferOut: &sample
-            )
-            guard let sample else { break }
-            while !input.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(2)) }
-            input.append(sample)
-            written += frames
+            var format: CMAudioFormatDescription?
+            CMAudioFormatDescriptionCreate(allocator: nil, asbd: &description, layoutSize: 0, layout: nil, magicCookieSize: 0, magicCookie: nil, extensions: nil, formatDescriptionOut: &format)
+            guard let format else { throw Failure(errorDescription: "The audio track couldn't be made.") }
+            self.format = format
+        }
+
+        mutating func append(until seconds: Double, to input: AVAssetWriterInput, of writer: AVAssetWriter) async throws {
+            let end = Int((seconds * Self.rate).rounded())
+            while written < end {
+                let frames = min(1024, end - written)
+                var block: CMBlockBuffer?
+                CMBlockBufferCreateWithMemoryBlock(
+                    allocator: nil, memoryBlock: nil, blockLength: frames * 4, blockAllocator: nil, customBlockSource: nil,
+                    offsetToData: 0, dataLength: frames * 4, flags: kCMBlockBufferAssureMemoryNowFlag, blockBufferOut: &block
+                )
+                guard let block else { throw Failure(errorDescription: "The audio track couldn't be made.") }
+                CMBlockBufferFillDataBytes(with: 0, blockBuffer: block, offsetIntoDestination: 0, dataLength: frames * 4)
+                var sample: CMSampleBuffer?
+                CMAudioSampleBufferCreateReadyWithPacketDescriptions(
+                    allocator: nil, dataBuffer: block, formatDescription: format, sampleCount: frames,
+                    presentationTimeStamp: CMTime(value: CMTimeValue(written), timescale: CMTimeScale(Self.rate)),
+                    packetDescriptions: nil, sampleBufferOut: &sample
+                )
+                guard let sample else { throw Failure(errorDescription: "The audio track couldn't be made.") }
+                try await waitUntilReady(input, of: writer)
+                input.append(sample)
+                written += frames
+            }
         }
     }
 }

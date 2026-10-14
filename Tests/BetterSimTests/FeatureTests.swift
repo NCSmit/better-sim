@@ -169,7 +169,7 @@ struct ScratchSimulatorTests {
 }
 
 struct TouchTests {
-    @Test func burnsADotWhereAndWhenTheScreenWasTouched() async throws {
+    @Test(.timeLimit(.minutes(1))) func burnsADotWhereAndWhenTheScreenWasTouched() async throws {
         let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -215,7 +215,10 @@ struct TouchTests {
         writer.startWriting()
         writer.startSession(atSourceTime: .zero)
         for frame in 0..<(seconds * 30) {
-            while !input.isReadyForMoreMediaData { try await Task.sleep(for: .milliseconds(5)) }
+            while !input.isReadyForMoreMediaData {
+                try #require(writer.status == .writing, "\(writer.error?.localizedDescription ?? "The test video couldn't be written.")")
+                try await Task.sleep(for: .milliseconds(5))
+            }
             var buffer: CVPixelBuffer?
             CVPixelBufferPoolCreatePixelBuffer(nil, adaptor.pixelBufferPool!, &buffer)
             let pixels = try #require(buffer)
@@ -401,15 +404,16 @@ struct AppPreviewTests {
         #expect(AppPreviewExporter.size(for: CGSize(width: 2064, height: 2752)) == CGSize(width: 1200, height: 1600))
     }
 
-    @Test func writesH264At30FramesWithStereoAudio() async throws {
+    /// Longer than two seconds, because the writer stalls when the audio falls that far behind the video.
+    @Test(.timeLimit(.minutes(1))) func writesH264At30FramesWithStereoAudio() async throws {
         let folder = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         let source = folder.appending(path: "phone.mov")
-        try await TouchTests.writeBlackVideo(to: source, size: CGSize(width: 402, height: 874), seconds: 2)
+        try await TouchTests.writeBlackVideo(to: source, size: CGSize(width: 402, height: 874), seconds: 4)
         let preview = folder.appending(path: "preview.mp4")
         let length = try await AppPreviewExporter.export(video: source, to: preview)
-        #expect(abs(length - 2) < 0.05)
+        #expect(abs(length - 4) < 0.05)
 
         let asset = AVURLAsset(url: preview)
         let video = try #require(try await asset.loadTracks(withMediaType: .video).first)
@@ -421,6 +425,7 @@ struct AppPreviewTests {
         let format = try await audio.load(.formatDescriptions).first.flatMap { CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee }
         #expect(format?.mChannelsPerFrame == 2)
         #expect(format?.mFormatID == kAudioFormatMPEG4AAC)
+        #expect(abs(try await audio.load(.timeRange).duration.seconds - 4) < 0.1)
     }
 }
 
