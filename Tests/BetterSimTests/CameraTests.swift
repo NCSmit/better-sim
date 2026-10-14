@@ -192,7 +192,7 @@ struct ScratchCameraTests {
     }
     """#
 
-    static let frameworks = ["AVFoundation", "CoreGraphics", "CoreImage", "CoreMedia", "CoreVideo", "ImageIO", "QuartzCore", "UniformTypeIdentifiers"]
+    static let frameworks = ["AVFoundation", "CoreGraphics", "CoreImage", "CoreMedia", "CoreVideo", "ImageIO", "QuartzCore", "UIKit", "UniformTypeIdentifiers"]
         .flatMap { ["-framework", $0] }
 
     @Test(.timeLimit(.minutes(2))) func givesAToolOnTheSimulatorACamera() async throws {
@@ -203,7 +203,8 @@ struct ScratchCameraTests {
         let packageRoot = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         let library = folder.appending(path: "\(SimulatorCamera.libraryName).dylib")
         try ScratchNetworkTests.buildForSimulator(
-            packageRoot.appending(path: "Monitor/\(SimulatorCamera.libraryName).m"), to: library, extraArguments: ["-dynamiclib"] + Self.frameworks
+            packageRoot.appending(path: "Monitor/\(SimulatorCamera.libraryName).m"), to: library,
+            extraArguments: ["-dynamiclib", packageRoot.appending(path: "Monitor/BetterSimCameraPicker.m").path(percentEncoded: false)] + Self.frameworks
         )
         let toolSource = folder.appending(path: "camera.m")
         try Self.tool.write(to: toolSource, atomically: true, encoding: .utf8)

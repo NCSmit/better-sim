@@ -43,11 +43,24 @@ struct ExploreView: View {
     @State private var trails = Trail.samples
     @State private var search = ""
     @State private var showsCamera = UserDefaults.standard.bool(forKey: "openCamera")
+    @State private var showsPicker = UserDefaults.standard.bool(forKey: "openPicker")
+    @State private var photo: UIImage?
+    @State private var presenter = PickerPresenter()
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    if let photo {
+                        Image(uiImage: photo)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(height: 210)
+                            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                            .overlay(alignment: .bottomLeading) {
+                                Text("YOUR PHOTO").font(.caption2.weight(.bold)).foregroundStyle(.white).padding(16)
+                            }
+                    }
                     FeaturedCard(trail: trails[0])
                     HStack {
                         Text("Near you").font(.title3.bold())
@@ -65,7 +78,13 @@ struct ExploreView: View {
             .searchable(text: $search, prompt: "Search trails")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button { showsCamera = true } label: { Image(systemName: "camera") }
+                    Menu {
+                        Button("Camera", systemImage: "camera") { showsCamera = true }
+                        Button("Photo Picker", systemImage: "photo.badge.plus") { showsPicker = true }
+                        Button("Photo Picker, Presented", systemImage: "rectangle.portrait.on.rectangle.portrait") { presentPicker() }
+                    } label: {
+                        Image(systemName: "camera")
+                    }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {} label: { Image(systemName: "slider.horizontal.3") }
@@ -73,7 +92,19 @@ struct ExploreView: View {
             }
         }
         .fullScreenCover(isPresented: $showsCamera) { CameraScreen() }
-        .task { await load() }
+        .fullScreenCover(isPresented: $showsPicker) { PhotoPicker(photo: $photo).ignoresSafeArea() }
+        .task {
+            if UserDefaults.standard.bool(forKey: "openPresentedPicker") {
+                try? await Task.sleep(for: .seconds(1))
+                presentPicker()
+            }
+            await load()
+        }
+    }
+
+    private func presentPicker() {
+        presenter.onPick = { photo = $0 }
+        presenter.present()
     }
 
     private func load() async {
@@ -290,4 +321,63 @@ struct CameraPreview: UIViewRepresentable {
     }
 
     func updateUIView(_ view: PreviewView, context: Context) {}
+}
+
+/// UIImagePickerController's camera, wrapped for SwiftUI the usual way.
+struct PhotoPicker: UIViewControllerRepresentable {
+    @Binding var photo: UIImage?
+    @Environment(\.dismiss) private var dismiss
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = UIImagePickerController.isSourceTypeAvailable(.camera) ? .camera : .photoLibrary
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ picker: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: PhotoPicker
+
+        init(_ parent: PhotoPicker) {
+            self.parent = parent
+        }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            parent.photo = info[.originalImage] as? UIImage
+            parent.dismiss()
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.dismiss()
+        }
+    }
+}
+
+/// UIImagePickerController presented straight from UIKit, the way Expo's image picker does it. Nothing keeps the
+/// picker itself, only its delegate.
+final class PickerPresenter: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+    var onPick: (UIImage) -> Void = { _ in }
+
+    func present() {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.delegate = self
+        let root = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow?.rootViewController }.first
+        guard var top = root else { return }
+        while let presented = top.presentedViewController { top = presented }
+        top.present(picker, animated: true)
+    }
+
+    func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+        if let image = info[.originalImage] as? UIImage { onPick(image) }
+        picker.dismiss(animated: true)
+    }
+
+    func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+        picker.dismiss(animated: true)
+    }
 }

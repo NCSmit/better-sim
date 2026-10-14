@@ -10,6 +10,7 @@
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <objc/runtime.h>
 #import <dlfcn.h>
+#import "BetterSimSwizzle.h"
 #import <arpa/inet.h>
 #import <netinet/in.h>
 #import <sys/socket.h>
@@ -788,28 +789,14 @@ static void BetterSimCapturePhoto(AVCapturePhotoOutput *output, AVCapturePhotoSe
 
 #pragma mark - Swizzling
 
-static IMP BetterSimReplace(Class cls, SEL selector, id block) {
-    Method method = class_getInstanceMethod(cls, selector);
-    if (!method) return NULL;
-    IMP original = method_getImplementation(method);
-    IMP replacement = imp_implementationWithBlock(block);
-    // An inherited method gets an override on this class, so the superclass's other subclasses are left alone.
-    if (!class_addMethod(cls, selector, replacement, method_getTypeEncoding(method))) method_setImplementation(method, replacement);
-    return original;
-}
-
-static IMP BetterSimReplaceClassMethod(Class cls, SEL selector, id block) {
-    return BetterSimReplace(object_getClass(cls), selector, block);
-}
-
 /// AVFoundation calls some of the same methods inside itself, and would trip over the fakes' missing private state.
 /// So only calls from the app itself see the pretend camera, and AVFoundation sees the Simulator as it is.
 static BOOL BetterSimInternal(const void *caller) {
-    Dl_info info;
-    if (!dladdr(caller, &info) || !info.dli_fname) return NO;
-    const char *path = info.dli_fname;
-    return strstr(path, "/AVFCapture.framework/") || strstr(path, "/AVFCore.framework/") || strstr(path, "/AVFoundation.framework/AVFoundation")
-        || strstr(path, "/CoreMedia.framework/") || strstr(path, "/MediaToolbox.framework/") || strstr(path, "/Celestial.framework/");
+    static const char *const frameworks[] = {
+        "/AVFCapture.framework/", "/AVFCore.framework/", "/AVFoundation.framework/AVFoundation", "/CoreMedia.framework/",
+        "/MediaToolbox.framework/", "/Celestial.framework/", NULL,
+    };
+    return BetterSimCalledFrom(caller, frameworks);
 }
 
 #define BETTERSIM_INTERNAL BetterSimInternal(__builtin_return_address(0))

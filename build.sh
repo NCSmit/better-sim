@@ -15,8 +15,8 @@ xcrun -sdk iphonesimulator clang -dynamiclib -fobjc-arc -arch arm64 -arch x86_64
   -framework Foundation -o "$MONITOR" Monitor/BetterSimNetworkMonitor.m
 xcrun -sdk iphonesimulator clang -dynamiclib -fobjc-arc -arch arm64 -arch x86_64 -mios-simulator-version-min=15.0 \
   -framework Foundation -framework AVFoundation -framework CoreGraphics -framework CoreImage -framework CoreMedia \
-  -framework CoreVideo -framework ImageIO -framework QuartzCore -framework UniformTypeIdentifiers \
-  -o "$CAMERA" Monitor/BetterSimCamera.m
+  -framework CoreVideo -framework ImageIO -framework QuartzCore -framework UIKit -framework UniformTypeIdentifiers \
+  -o "$CAMERA" Monitor/BetterSimCamera.m Monitor/BetterSimCameraPicker.m
 codesign --force --sign - "$MONITOR"
 codesign --force --sign - "$CAMERA"
 

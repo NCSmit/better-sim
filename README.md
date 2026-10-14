@@ -96,7 +96,7 @@ The Simulator has no camera, so BetterSim lends your app one. Pick your Mac's ca
   <img src="docs/camera.png" alt="Trails' camera screen in the Simulator showing BetterSim's test pattern and a photo just taken, next to the Simulator camera card set to Test Pattern" width="820">
 </p>
 
-Scanning codes with AVCaptureMetadataOutput, recording movies, and VisionKit's DataScannerViewController don't work yet. Frames are 1280 × 720, and the front and back cameras show the same picture.
+Apps that take photos with UIImagePickerController, including Expo's `ImagePicker.launchCameraAsync`, get a BetterSim camera screen in its place, with Retake and Use Photo. Scanning codes with AVCaptureMetadataOutput, recording movies, and VisionKit's DataScannerViewController don't work yet. Frames are 1280 × 720, and the front and back cameras show the same picture.
 
 ### Device settings and accessibility
 
