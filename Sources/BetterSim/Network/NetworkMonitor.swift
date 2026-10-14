@@ -157,6 +157,8 @@ final class NetworkMonitor: ObservableObject {
     @Published private(set) var events: [NetworkEvent] = []
     @Published private(set) var port: UInt16?
     private var listener: NWListener?
+    /// The process of each app relaunched with the monitor, by device and bundle identifier.
+    private var monitoredProcesses: [String: pid_t] = [:]
     private var waiters: [CheckedContinuation<UInt16, any Error>] = []
     private let connectionQueue = DispatchQueue(label: "local.bettersim.network")
 
@@ -209,17 +211,35 @@ final class NetworkMonitor: ObservableObject {
         listener?.cancel()
         listener = nil
         port = nil
+        monitoredProcesses = [:]
         resumeWaiters(with: .failure(CancellationError()))
     }
 
     /// Relaunches the app with the monitor loaded, so its requests show up in `events`.
-    func relaunch(_ bundleID: String, on udid: String) async throws {
-        guard let library = Self.bundledLibrary else { throw NetworkMonitorError.missingLibrary }
+    func relaunch(_ bundleID: String, on udid: String, library: URL? = NetworkMonitor.bundledLibrary) async throws {
+        guard let library else { throw NetworkMonitorError.missingLibrary }
         let port = try await start()
-        try await Simctl.run(
+        let output = try await Simctl.run(
             ["launch", "--terminate-running-process", udid, bundleID],
             environment: Self.launchEnvironment(port: port, dylib: library)
         )
+        if let process = Self.processIdentifier(launchOutput: String(decoding: output, as: UTF8.self)) {
+            monitoredProcesses["\(udid) \(bundleID)"] = process
+        }
+    }
+
+    /// Whether the app is still running from a relaunch with this monitor. Simulator apps are processes on the Mac,
+    /// so the relaunched one lives until the app quits or is launched again some other way.
+    func isMonitoring(_ bundleID: String, on udid: String) -> Bool {
+        guard port != nil, let process = monitoredProcesses["\(udid) \(bundleID)"] else { return false }
+        var path = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        guard proc_pidpath(process, &path, UInt32(path.count)) > 0 else { return false }
+        return String(decoding: path.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self).contains("/Devices/\(udid)/")
+    }
+
+    /// `simctl launch` prints the bundle identifier and the process it started, like `com.example.app: 4242`.
+    nonisolated static func processIdentifier(launchOutput: String) -> pid_t? {
+        launchOutput.split(separator: ":").last.flatMap { pid_t($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
     }
 
     func record(_ event: NetworkEvent) {

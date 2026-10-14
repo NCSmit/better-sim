@@ -327,8 +327,13 @@ final class SimulatorModel: ObservableObject {
         }
     }
 
-    func relaunchWithNetworkMonitoring() {
-        guard let monitor = networkMonitor else { return }
+    /// Shows the app's requests, relaunching it with the monitor first unless it's already running with it.
+    func monitorNetwork() {
+        guard let monitor = networkMonitor, let bundleID = selectedBundleID, let udid = selectedUDID else { return }
+        if monitor.isMonitoring(bundleID, on: udid) {
+            openNetworkMonitor()
+            return
+        }
         appAction("Relaunched. Its requests now show in the network monitor.") { [self] bundleID, udid in
             try await monitor.relaunch(bundleID, on: udid)
             openNetworkMonitor()

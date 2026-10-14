@@ -415,12 +415,8 @@ struct AppActionsCard: View {
                 Button("Uninstall", role: .destructive) { model.uninstallApp() }
             }
             CardHeader(text: "NETWORK")
-            HStack(spacing: 6) {
-                Pill(title: "Monitor", symbol: "antenna.radiowaves.left.and.right") { model.relaunchWithNetworkMonitoring() }
-                    .help("Relaunch the app so its network requests show in the network monitor")
-                Pill(title: "Requests", symbol: "list.bullet") { model.openNetworkMonitor() }
-                    .help("Open the network monitor")
-            }
+            Pill(title: "Network Monitor", symbol: "antenna.radiowaves.left.and.right") { model.monitorNetwork() }
+                .help("Show the app's network requests. If the app isn't being monitored yet, it's relaunched with the monitor first.")
             CardHeader(text: "LOCALE & TIME ZONE")
             HStack(spacing: 6) {
                 Picker("Language", selection: $language) {
