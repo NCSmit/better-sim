@@ -127,44 +127,50 @@ struct LiveSimulatorTests {
     }
 }
 
-/// Changes settings on a throwaway device named in BETTERSIM_SCRATCH_UDID, and checks each change took.
-struct ScratchSimulatorTests {
-    let udid = ProcessInfo.processInfo.environment["BETTERSIM_SCRATCH_UDID"]
+/// The tests below change the throwaway device named in BETTERSIM_SCRATCH_UDID. They share it, so they run one at a time.
+@Suite(.serialized)
+struct ScratchDeviceTests {}
 
-    @Test func changesTheDevicesSettings() async throws {
-        guard let udid else { return }
-        try await DeviceSettings.setAppearance("dark", on: udid)
-        #expect(await DeviceSettings.appearance(udid) == "dark")
-        try await DeviceSettings.setAppearance("light", on: udid)
-        #expect(await DeviceSettings.appearance(udid) == "light")
+extension ScratchDeviceTests {
+    /// Changes settings on a throwaway device named in BETTERSIM_SCRATCH_UDID, and checks each change took.
+    struct ScratchSimulatorTests {
+        let udid = ProcessInfo.processInfo.environment["BETTERSIM_SCRATCH_UDID"]
 
-        try await DeviceSettings.setTextSize("accessibility-large", on: udid)
-        #expect(await DeviceSettings.textSize(udid) == "accessibility-large")
-        try await DeviceSettings.setTextSize("large", on: udid)
+        @Test func changesTheDevicesSettings() async throws {
+            guard let udid else { return }
+            try await DeviceSettings.setAppearance("dark", on: udid)
+            #expect(await DeviceSettings.appearance(udid) == "dark")
+            try await DeviceSettings.setAppearance("light", on: udid)
+            #expect(await DeviceSettings.appearance(udid) == "light")
 
-        try await DeviceSettings.setIncreasedContrast(true, on: udid)
-        #expect(await DeviceSettings.increasedContrast(udid))
-        try await DeviceSettings.setIncreasedContrast(false, on: udid)
-        #expect(await !DeviceSettings.increasedContrast(udid))
+            try await DeviceSettings.setTextSize("accessibility-large", on: udid)
+            #expect(await DeviceSettings.textSize(udid) == "accessibility-large")
+            try await DeviceSettings.setTextSize("large", on: udid)
 
-        try await DeviceSettings.setCleanStatusBar(true, on: udid)
-        #expect(await DeviceSettings.statusBarIsClean(udid))
-        try await DeviceSettings.setCleanStatusBar(false, on: udid)
-        #expect(await !DeviceSettings.statusBarIsClean(udid))
+            try await DeviceSettings.setIncreasedContrast(true, on: udid)
+            #expect(await DeviceSettings.increasedContrast(udid))
+            try await DeviceSettings.setIncreasedContrast(false, on: udid)
+            #expect(await !DeviceSettings.increasedContrast(udid))
 
-        try await DeviceSettings.setLocation(Coordinate.places[1].coordinate, on: udid)
-        try await DeviceSettings.clearLocation(on: udid)
-    }
+            try await DeviceSettings.setCleanStatusBar(true, on: udid)
+            #expect(await DeviceSettings.statusBarIsClean(udid))
+            try await DeviceSettings.setCleanStatusBar(false, on: udid)
+            #expect(await !DeviceSettings.statusBarIsClean(udid))
 
-    @Test func opensLinksSendsPushesAndClearsDefaults() async throws {
-        guard let udid else { return }
-        try await AppActions.open("https://example.com", on: udid)
-        let payload = try PushPayload.validate(PushPayload.templates[0].json).get()
-        try await AppActions.push(payload, to: "com.apple.mobilesafari", on: udid)
-        try await AppActions.resetPermissions("com.apple.mobilesafari", on: udid)
-        try await AppActions.clearDefaults("com.apple.mobilesafari", on: udid)
-        let container = try await AppActions.dataContainer("com.apple.mobilesafari", on: udid)
-        #expect(FileManager.default.fileExists(atPath: container.path))
+            try await DeviceSettings.setLocation(Coordinate.places[1].coordinate, on: udid)
+            try await DeviceSettings.clearLocation(on: udid)
+        }
+
+        @Test func opensLinksSendsPushesAndClearsDefaults() async throws {
+            guard let udid else { return }
+            try await AppActions.open("https://example.com", on: udid)
+            let payload = try PushPayload.validate(PushPayload.templates[0].json).get()
+            try await AppActions.push(payload, to: "com.apple.mobilesafari", on: udid)
+            try await AppActions.resetPermissions("com.apple.mobilesafari", on: udid)
+            try await AppActions.clearDefaults("com.apple.mobilesafari", on: udid)
+            let container = try await AppActions.dataContainer("com.apple.mobilesafari", on: udid)
+            #expect(FileManager.default.fileExists(atPath: container.path))
+        }
     }
 }
 
@@ -244,67 +250,71 @@ struct TouchTests {
     }
 }
 
-/// More changes on the throwaway device in BETTERSIM_SCRATCH_UDID.
-struct ScratchToolTests {
-    let udid = ProcessInfo.processInfo.environment["BETTERSIM_SCRATCH_UDID"]
+extension ScratchDeviceTests {
+    /// More changes on the throwaway device in BETTERSIM_SCRATCH_UDID.
+    struct ScratchToolTests {
+        let udid = ProcessInfo.processInfo.environment["BETTERSIM_SCRATCH_UDID"]
 
-    @Test func editsAnAppsUserDefaults() async throws {
-        guard let udid else { return }
-        let app = "com.apple.mobilesafari"
-        try await AppDefaults.write(.string("hello"), for: "BetterSimProbe", bundleID: app, udid: udid)
-        try await AppDefaults.write(.integer(42), for: "BetterSimNumber", bundleID: app, udid: udid)
-        var values = try await AppDefaults.load(app, udid: udid)
-        #expect(values.first { $0.key == "BetterSimProbe" }?.value == .string("hello"))
-        #expect(values.first { $0.key == "BetterSimNumber" }?.value == .integer(42))
-        try await AppDefaults.delete("BetterSimProbe", bundleID: app, udid: udid)
-        try await AppDefaults.delete("BetterSimNumber", bundleID: app, udid: udid)
-        values = try await AppDefaults.load(app, udid: udid)
-        #expect(!values.contains { $0.key.hasPrefix("BetterSim") })
-    }
+        @Test func editsAnAppsUserDefaults() async throws {
+            guard let udid else { return }
+            let app = "com.apple.mobilesafari"
+            try await AppDefaults.write(.string("hello"), for: "BetterSimProbe", bundleID: app, udid: udid)
+            try await AppDefaults.write(.integer(42), for: "BetterSimNumber", bundleID: app, udid: udid)
+            var values = try await AppDefaults.load(app, udid: udid)
+            #expect(values.first { $0.key == "BetterSimProbe" }?.value == .string("hello"))
+            #expect(values.first { $0.key == "BetterSimNumber" }?.value == .integer(42))
+            try await AppDefaults.delete("BetterSimProbe", bundleID: app, udid: udid)
+            try await AppDefaults.delete("BetterSimNumber", bundleID: app, udid: udid)
+            values = try await AppDefaults.load(app, udid: udid)
+            #expect(!values.contains { $0.key.hasPrefix("BetterSim") })
+        }
 
-    @Test func addsMediaTrustsNothingBrokenAndRunsScenarios() async throws {
-        guard let udid else { return }
-        let image = FileManager.default.temporaryDirectory.appending(path: "bettersim-media.png")
-        try ImageFile.writePNG(try #require(FramerTests.solidImage(width: 40, height: 40)), to: image)
-        try await AppActions.addMedia([image], on: udid)
-        try await AppActions.resetKeychain(on: udid)
-        var style = StatusBarStyle()
-        style.time = "10:10"
-        style.batteryLevel = 42
-        try await DeviceSettings.setStatusBar(style, on: udid)
-        #expect(try await Simctl.output(["status_bar", udid, "list"]).contains("10:10"))
-        try await DeviceSettings.setCleanStatusBar(false, on: udid)
-        let scenarios = await LocationScenarios.all(udid: udid)
-        #expect(scenarios.contains("City Run"))
-        try await LocationScenarios.run("City Run", udid: udid)
-        try await LocationRoute.start([Coordinate(latitude: 52.37, longitude: 4.89), Coordinate(latitude: 52.36, longitude: 4.88)], travel: .walking, udid: udid)
-        try await DeviceSettings.clearLocation(on: udid)
-        try await AppActions.relaunch("com.apple.mobilesafari", on: udid, inTimeZone: "Asia/Tokyo")
-        try await AppActions.relaunch("com.apple.mobilesafari", on: udid, in: Language.common[3])
-        let groups = await AppFolder.groups(bundleID: "com.apple.mobilesafari", udid: udid)
-        #expect(!groups.isEmpty)
-    }
+        @Test func addsMediaTrustsNothingBrokenAndRunsScenarios() async throws {
+            guard let udid else { return }
+            let image = FileManager.default.temporaryDirectory.appending(path: "bettersim-media.png")
+            try ImageFile.writePNG(try #require(FramerTests.solidImage(width: 40, height: 40)), to: image)
+            try await AppActions.addMedia([image], on: udid)
+            try await AppActions.resetKeychain(on: udid)
+            var style = StatusBarStyle()
+            style.time = "10:10"
+            style.batteryLevel = 42
+            try await DeviceSettings.setStatusBar(style, on: udid)
+            #expect(try await Simctl.output(["status_bar", udid, "list"]).contains("10:10"))
+            try await DeviceSettings.setCleanStatusBar(false, on: udid)
+            let scenarios = await LocationScenarios.all(udid: udid)
+            #expect(scenarios.contains("City Run"))
+            try await LocationScenarios.run("City Run", udid: udid)
+            try await LocationRoute.start([Coordinate(latitude: 52.37, longitude: 4.89), Coordinate(latitude: 52.36, longitude: 4.88)], travel: .walking, udid: udid)
+            try await DeviceSettings.clearLocation(on: udid)
+            try await AppActions.relaunch("com.apple.mobilesafari", on: udid, inTimeZone: "Asia/Tokyo")
+            try await AppActions.relaunch("com.apple.mobilesafari", on: udid, in: Language.common[3])
+            let groups = await AppFolder.groups(bundleID: "com.apple.mobilesafari", udid: udid)
+            #expect(!groups.isEmpty)
+        }
 
-    @Test func findsARouteOnAppleMaps() async throws {
-        guard udid != nil else { return }
-        let points = try await LocationRoute.waypoints(from: "Dam Square, Amsterdam", to: "Rijksmuseum, Amsterdam", travel: .walking)
-        #expect(points.count > 2)
+        @Test func findsARouteOnAppleMaps() async throws {
+            guard udid != nil else { return }
+            let points = try await LocationRoute.waypoints(from: "Dam Square, Amsterdam", to: "Rijksmuseum, Amsterdam", travel: .walking)
+            #expect(points.count > 2)
+        }
     }
 }
 
-struct ScratchAccessibilityTests {
-    let udid = ProcessInfo.processInfo.environment["BETTERSIM_SCRATCH_UDID"]
+extension ScratchDeviceTests {
+    struct ScratchAccessibilityTests {
+        let udid = ProcessInfo.processInfo.environment["BETTERSIM_SCRATCH_UDID"]
 
-    @Test func switchesAccessibilitySettings() async throws {
-        guard let udid else { return }
-        for toggle in AccessibilityToggle.allCases {
-            try await toggle.set(true, on: udid)
+        @Test func switchesAccessibilitySettings() async throws {
+            guard let udid else { return }
+            for toggle in AccessibilityToggle.allCases {
+                try await toggle.set(true, on: udid)
+            }
+            #expect(await AccessibilityToggle.enabled(on: udid) == Set(AccessibilityToggle.allCases))
+            for toggle in AccessibilityToggle.allCases {
+                try await toggle.set(false, on: udid)
+            }
+            #expect(await AccessibilityToggle.enabled(on: udid).isEmpty)
         }
-        #expect(await AccessibilityToggle.enabled(on: udid) == Set(AccessibilityToggle.allCases))
-        for toggle in AccessibilityToggle.allCases {
-            try await toggle.set(false, on: udid)
-        }
-        #expect(await AccessibilityToggle.enabled(on: udid).isEmpty)
     }
 }
 

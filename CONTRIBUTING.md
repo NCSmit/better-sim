@@ -34,16 +34,23 @@ cd better-sim
 swift test
 ```
 
-Most tests run anywhere. A few also run against a real simulator when you set an environment variable:
+Most tests run anywhere. Four groups also run against a real simulator when you set an environment variable:
 
-- `BETTERSIM_LIVE_UDID=<udid>` runs read-only checks on a booted device: screenshots, recording and GIFs.
-- `BETTERSIM_SCRATCH_UDID=<udid>` changes settings, defaults, location and more. Only point it at a throwaway device:
+- `BETTERSIM_LIVE_UDID=<udid>` takes screenshots and recordings, and reads the device's settings and apps.
+- `BETTERSIM_SCRATCH_UDID=<udid>` changes settings, defaults, permissions, location and more.
+- `BETTERSIM_CLI_UDID=<udid>` runs the `bettersim` command-line tool against the device.
+- `BETTERSIM_NET_SCRATCH_UDID=<udid>` runs a small tool on the device with the network monitor loaded.
+
+Give each group its own throwaway device. They change the device, and groups that share one can trip each other up:
 
 ```bash
-UDID=$(xcrun simctl create "BetterSim Test" com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro)
-xcrun simctl boot "$UDID"
-BETTERSIM_SCRATCH_UDID="$UDID" swift test
-xcrun simctl delete "$UDID"
+for group in LIVE SCRATCH CLI NET_SCRATCH; do
+  udid=$(xcrun simctl create "BetterSim $group" com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro)
+  xcrun simctl boot "$udid"
+  export "BETTERSIM_${group}_UDID=$udid"
+done
+swift test
+xcrun simctl delete "$BETTERSIM_LIVE_UDID" "$BETTERSIM_SCRATCH_UDID" "$BETTERSIM_CLI_UDID" "$BETTERSIM_NET_SCRATCH_UDID"
 ```
 
 ## Checking the panel without clicking around
