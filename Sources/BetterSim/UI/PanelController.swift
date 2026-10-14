@@ -25,7 +25,13 @@ final class PanelController {
     private var isTrusted = AccessibilityScreenFinder.isTrusted
     private var lastProbe = Date.distantPast
     private var dockLeft = false
+    private var sideVotes = 0
+    private var placed: NSRect?
+    private var visibility = Visibility.hidden
+    private var hiddenSince: Date?
     private(set) var currentScreen: CGRect?
+
+    private enum Visibility { case hidden, fadingIn, shown, fadingOut }
     var isPinnedOpen = true { didSet { tick() } }
 
     init(model: SimulatorModel, overlayModel: OverlayModel) {
@@ -89,7 +95,7 @@ final class PanelController {
             } else {
                 tracked = frontmost
             }
-            if let frame = tracked?.frame { dockLeft = shouldDockLeft(of: frame) }
+            if let frame = tracked?.frame { updateSide(for: frame) }
         } else if let current = tracked, let frame = Self.frame(of: current.id) {
             tracked = SimulatorWindow(id: current.id, frame: frame)
         } else {
@@ -104,9 +110,44 @@ final class PanelController {
         placeOverlay(over: window.frame)
     }
 
+    /// Waits a moment before fading out, so the panel doesn't blink while focus passes between the Simulator,
+    /// the panel and its menus.
     private func hide() {
-        if panel.isVisible { panel.orderOut(nil) }
+        guard visibility == .shown || visibility == .fadingIn else { return }
+        let since = hiddenSince ?? .now
+        hiddenSince = since
+        guard Date.now.timeIntervalSince(since) > 0.25 else { return }
+        visibility = .fadingOut
         overlay.hide()
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Theme.motion * 0.6
+            panel.animator().alphaValue = 0
+        } completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.visibility == .fadingOut else { return }
+                self.panel.orderOut(nil)
+                self.visibility = .hidden
+            }
+        }
+    }
+
+    private func show() {
+        hiddenSince = nil
+        guard visibility == .hidden || visibility == .fadingOut else { return }
+        if visibility == .hidden {
+            panel.alphaValue = 0
+            panel.orderFront(nil)
+        }
+        visibility = .fadingIn
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = Theme.motion * 0.75
+            panel.animator().alphaValue = 1
+        } completionHandler: { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.visibility == .fadingIn else { return }
+                self.visibility = .shown
+            }
+        }
     }
 
     private func place(next window: CGRect) {
@@ -118,8 +159,36 @@ final class PanelController {
         let x = dockLeft ? left : right
         let top = min(simulator.maxY, screen.maxY)
         let frame = NSRect(x: x, y: max(screen.minY, top - height), width: Theme.width, height: height)
-        if panel.frame != frame { panel.setFrame(frame, display: true) }
-        if !panel.isVisible { panel.orderFront(nil) }
+        if frame != placed {
+            let previous = placed
+            placed = frame
+            // When only the height changes, as it does between tabs, grow or shrink smoothly from the top.
+            if let previous, visibility != .hidden, previous.minX == frame.minX, previous.maxY == frame.maxY {
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = Theme.motion
+                    context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                    panel.animator().setFrame(frame, display: true)
+                } completionHandler: { [weak self] in
+                    MainActor.assumeIsolated { self?.panel.invalidateShadow() }
+                }
+            } else {
+                panel.setFrame(frame, display: true)
+                panel.invalidateShadow()
+            }
+        }
+        show()
+    }
+
+    /// Changes sides only once the same answer has come back a few scans in a row, so a tool's panel fading in and
+    /// out next to the Simulator doesn't make this one jump back and forth.
+    private func updateSide(for window: CGRect) {
+        let left = shouldDockLeft(of: window)
+        guard left != dockLeft else { return sideVotes = 0 }
+        sideVotes += 1
+        if placed == nil || sideVotes >= 3 {
+            dockLeft = left
+            sideVotes = 0
+        }
     }
 
     /// Docks on the right unless the setting says otherwise, there's no room, or another tool's floating panel is there.
@@ -142,9 +211,9 @@ final class PanelController {
         let info = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
         let ownPID = ProcessInfo.processInfo.processIdentifier
         return info.contains { window in
+            // Hidden panels count too: they come back each time the Simulator is in front.
             guard let layer = window[kCGWindowLayer as String] as? Int, (1...20).contains(layer),
                   window[kCGWindowOwnerPID as String] as? pid_t != ownPID,
-                  (window[kCGWindowAlpha as String] as? Double ?? 1) > 0,
                   let bounds = window[kCGWindowBounds as String],
                   let frame = CGRect(dictionaryRepresentation: bounds as! CFDictionary),
                   frame.width < 600

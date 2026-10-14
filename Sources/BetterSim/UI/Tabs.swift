@@ -10,48 +10,6 @@ struct CaptureTab: View {
 
     var body: some View {
         Card {
-            SwitchRow(label: "Device frame", isOn: $preferences.framesScreenshots)
-                .disabled(model.profile?.hasChrome != true)
-            Row(label: "Background") {
-                CompactMenu(title: preferences.background.rawValue) {
-                    ForEach(ScreenshotBackground.allCases) { background in
-                        Button(background.rawValue) { preferences.background = background }
-                    }
-                }
-            }
-            Row(label: "Ratio") {
-                CompactMenu(title: preferences.ratio.rawValue) {
-                    ForEach(ScreenshotRatio.allCases) { ratio in
-                        Button(ratio.rawValue) { preferences.ratio = ratio }
-                    }
-                }
-            }
-            TextField("Title above the device", text: $preferences.screenshotTitle)
-                .textFieldStyle(.roundedBorder)
-                .controlSize(.small)
-            CardDivider()
-            SwitchRow(label: "Touches", isOn: $preferences.showsTouches)
-                .help("Show where you click in recordings")
-            SwitchRow(label: "120 fps with sound", isOn: $preferences.highFrameRate)
-                .help("Record the Simulator window at up to 120 fps with its audio. Needs Screen Recording access.")
-            SwitchRow(label: "Trim before saving", isOn: $preferences.trimsRecordings)
-                .help("Open each recording in a trim editor before it's saved")
-            SwitchRow(label: "App Store Connect", isOn: $preferences.appStoreMode)
-                .help("Screenshots without frames or transparency, and MP4s as 30 fps app previews at Apple's accepted sizes")
-            Row(label: "GIF width") {
-                CompactMenu(title: "\(Int(preferences.gifWidth)) px") {
-                    ForEach([320.0, 480, 640, 800], id: \.self) { width in
-                        Button("\(Int(width)) px") { preferences.gifWidth = width }
-                    }
-                }
-            }
-            Row(label: "Save to") {
-                CompactMenu(title: preferences.saveFolder.lastPathComponent) {
-                    Button("Choose Folder…") { preferences.chooseSaveFolder() }
-                    Button("Show in Finder") { NSWorkspace.shared.open(preferences.saveFolder) }
-                }
-            }
-            CardDivider()
             if let kind = model.recordingKind, let since = model.recordingSince {
                 Button { model.capture(kind) } label: {
                     HStack(spacing: 6) {
@@ -61,17 +19,59 @@ struct CaptureTab: View {
                                 .monospacedDigit()
                         }
                     }
+                    .padding(.vertical, 8)
                 }
                 .buttonStyle(PillButtonStyle(isOn: true, tint: .red))
             } else {
-                HStack(spacing: 6) {
+                HStack(spacing: 8) {
                     ForEach(SimulatorModel.CaptureKind.allCases) { kind in
-                        Button(kind.rawValue) { model.capture(kind) }
-                            .buttonStyle(PillButtonStyle())
-                            .help(kind == .png ? "Take a screenshot" : "Start recording a \(kind.rawValue)")
+                        Button { model.capture(kind) } label: {
+                            VStack(spacing: 5) {
+                                Image(systemName: Self.symbol(for: kind)).font(.system(size: 15, weight: .medium)).frame(height: 18)
+                                Text(kind.rawValue)
+                            }
+                            .padding(.vertical, 3)
+                        }
+                        .buttonStyle(PillButtonStyle())
+                        .help(kind == .png ? "Take a screenshot" : "Start recording a \(kind.rawValue)")
                     }
                 }
             }
+            SwitchRow(label: "App Store Connect", isOn: $preferences.appStoreMode)
+                .help("Screenshots without frames or transparency, and MP4s as 30 fps app previews at Apple's accepted sizes")
+        }
+        Card {
+            CardHeader(text: "Screenshots")
+            SwitchRow(label: "Device frame", isOn: $preferences.framesScreenshots)
+                .disabled(model.profile?.hasChrome != true)
+            Row(label: "Background") {
+                CompactMenu(title: preferences.background.rawValue) {
+                    ForEach(ScreenshotBackground.allCases) { background in
+                        Button(background.rawValue) { preferences.background = background }
+                    }
+                }
+            }
+            // Ratio and title only matter once there's a background, so they wait until then.
+            if preferences.background != .none || preferences.ratio != .automatic || !preferences.screenshotTitle.isEmpty {
+                Row(label: "Ratio") {
+                    CompactMenu(title: preferences.ratio.rawValue) {
+                        ForEach(ScreenshotRatio.allCases) { ratio in
+                            Button(ratio.rawValue) { preferences.ratio = ratio }
+                        }
+                    }
+                }
+                TextField("Title above the device", text: $preferences.screenshotTitle)
+                    .textFieldStyle(.roundedBorder)
+            }
+        }
+        Card {
+            CardHeader(text: "Recordings")
+            SwitchRow(label: "Show touches", isOn: $preferences.showsTouches)
+                .help("Show where you click in recordings")
+            SwitchRow(label: "Trim before saving", isOn: $preferences.trimsRecordings)
+                .help("Open each recording in a trim editor before it's saved")
+            SwitchRow(label: "120 fps with sound", isOn: $preferences.highFrameRate)
+                .help("Record the Simulator window at up to 120 fps with its audio. Needs Screen Recording access.")
         }
         Card(padding: 6) {
             HStack(spacing: 6) {
@@ -93,16 +93,22 @@ struct CaptureTab: View {
         }
         if !model.captures.isEmpty {
             Card {
-                CardHeader(text: "RECENT")
-                HStack(spacing: 6) {
+                CardHeader(text: "Recent")
+                HStack(spacing: 8) {
                     ForEach(model.captures.prefix(4), id: \.self) { url in
                         CaptureThumbnail(url: url)
                     }
                 }
-                Text("Drag into any app, or click to show in Finder.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
+                Note(text: "Drag into any app, or click to show in Finder.")
             }
+        }
+    }
+
+    static func symbol(for kind: SimulatorModel.CaptureKind) -> String {
+        switch kind {
+        case .gif: "photo.stack"
+        case .mp4: "video"
+        case .png: "camera"
         }
     }
 }
@@ -200,7 +206,7 @@ struct CompareTab: View {
             }
         }
         Card {
-            CardHeader(text: "DESIGN")
+            CardHeader(text: "Design")
             if let image = overlay.image {
                 HStack(spacing: 8) {
                     Image(nsImage: image).resizable().scaledToFill()
@@ -272,31 +278,30 @@ struct CompareTab: View {
                 Pill(title: "Choose…", symbol: "folder") { overlay.chooseImage() }
             }
         }
-        Card {
-            CardHeader(text: "GRID")
-            Row(label: "Spacing") {
-                CompactMenu(title: "\(Int(overlay.gridSpacing)) pt") {
-                    ForEach([4.0, 8, 16, 20, 44], id: \.self) { spacing in
-                        Button("\(Int(spacing)) pt") { overlay.gridSpacing = spacing }
+        if overlay.showsGrid {
+            Card {
+                CardHeader(text: "Grid")
+                Row(label: "Spacing") {
+                    CompactMenu(title: "\(Int(overlay.gridSpacing)) pt") {
+                        ForEach([4.0, 8, 16, 20, 44], id: \.self) { spacing in
+                            Button("\(Int(spacing)) pt") { overlay.gridSpacing = spacing }
+                        }
                     }
                 }
-            }
-            Row(label: "Colour") {
-                ColorPicker("Colour", selection: $overlay.gridColor).labelsHidden().controlSize(.small)
+                Row(label: "Colour") {
+                    ColorPicker("Colour", selection: $overlay.gridColor).labelsHidden().controlSize(.small)
+                }
             }
         }
         Card {
-            CardHeader(text: "COLOUR PICKER")
+            CardHeader(text: "Colour picker")
             Segments(options: ColourFormat.allCases.map { ($0, $0.rawValue) }, selection: $colourFormat)
             Pill(title: "Pick a Colour", symbol: "eyedropper") { model.pickColour(colourFormat) }
                 .help("Magnify any part of the screen and copy the colour under the pointer")
         }
         if !AccessibilityScreenFinder.isTrusted {
             Card {
-                Text("Overlays are placed from the window size. Allow Accessibility for an exact fit.")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                Note(text: "Overlays are placed from the window size. Allow Accessibility for an exact fit.")
                 Pill(title: "Allow Accessibility…") { AccessibilityScreenFinder.requestAccess() }
             }
         }
@@ -333,13 +338,11 @@ struct AppTab: View {
     var body: some View {
         if model.apps.isEmpty && section != .builds {
             Card {
-                Text("Install an app on this simulator to use app actions, or build one in Xcode.")
-                    .font(Theme.font)
-                    .foregroundStyle(.secondary)
+                Note(text: "Install an app on this simulator to use app actions, or build one in Xcode.")
                 Pill(title: "Recent Builds", symbol: "hammer") { section = .builds }
             }
         } else {
-            Card(spacing: 6) {
+            Card {
                 if !model.apps.isEmpty {
                     AppHeader(model: model)
                     CardDivider()
@@ -404,52 +407,56 @@ struct AppActionsCard: View {
 
     var body: some View {
         Card {
-            CardHeader(text: "LIFECYCLE")
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 6) {
-                Pill(title: "Launch") { model.launchApp() }
-                Pill(title: "Relaunch") { model.relaunchApp() }
-                Pill(title: "Terminate") { model.terminateApp() }
-                Pill(title: "Uninstall") { confirmingUninstall = true }
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                Pill(title: "Launch", symbol: "play") { model.launchApp() }
+                Pill(title: "Relaunch", symbol: "arrow.clockwise") { model.relaunchApp() }
+                Pill(title: "Terminate", symbol: "stop") { model.terminateApp() }
+                Pill(title: "Uninstall", symbol: "trash") { confirmingUninstall = true }
             }
             .confirmationDialog("Uninstall \(model.app?.name ?? "this app") from the simulator?", isPresented: $confirmingUninstall) {
                 Button("Uninstall", role: .destructive) { model.uninstallApp() }
             }
-            CardHeader(text: "NETWORK")
             Pill(title: "Network Monitor", symbol: "antenna.radiowaves.left.and.right") { model.monitorNetwork() }
                 .help("Show the app's network requests. If the app isn't being monitored yet, it's relaunched with the monitor first.")
-            CardHeader(text: "LOCALE & TIME ZONE")
-            HStack(spacing: 6) {
+        }
+        Card {
+            CardHeader(text: "Language and time zone")
+            HStack(spacing: 8) {
                 Picker("Language", selection: $language) {
                     ForEach(Language.common) { Text($0.name).tag($0) }
                 }
                 .labelsHidden()
-                .controlSize(.small)
                 Pill(title: "Relaunch") { model.relaunch(in: language) }
-                    .frame(width: 74)
+                    .frame(width: 84)
             }
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 Picker("Time zone", selection: $timeZone) {
                     ForEach(TimeZones.common, id: \.self) { Text(TimeZones.name($0)).tag($0) }
                 }
                 .labelsHidden()
-                .controlSize(.small)
                 Pill(title: "Relaunch") { model.relaunch(inTimeZone: timeZone) }
-                    .frame(width: 74)
+                    .frame(width: 84)
             }
-            CardHeader(text: "PERMISSIONS")
-            Picker("Permission", selection: $service) {
-                ForEach(Permissions.services.indices, id: \.self) { Text(Permissions.services[$0].name).tag($0) }
+        }
+        Card {
+            CardHeader(text: "Permissions")
+            Row(label: "Service") {
+                Picker("Service", selection: $service) {
+                    ForEach(Permissions.services.indices, id: \.self) { Text(Permissions.services[$0].name).tag($0) }
+                }
+                .labelsHidden()
+                .fixedSize()
             }
-            .labelsHidden()
-            .controlSize(.small)
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 ForEach(PermissionAction.allCases, id: \.self) { action in
                     Pill(title: action.rawValue.capitalized) { model.setPermission(action, Permissions.services[service]) }
                 }
             }
-            CardHeader(text: "FILES")
-            HStack(spacing: 6) {
-                Menu {
+        }
+        Card {
+            CardHeader(text: "Data")
+            Row(label: "Folders") {
+                CompactMenu(title: "Open") {
                     ForEach(AppFolder.allCases) { folder in
                         Button(folder.rawValue) { model.open(folder) }
                     }
@@ -459,20 +466,19 @@ struct AppActionsCard: View {
                             Button(group.id) { model.openGroup(group.url) }
                         }
                     }
-                } label: {
-                    Label("Open Folder", systemImage: "folder").font(.system(size: 11, weight: .medium))
                 }
-                .menuStyle(.button)
-                .controlSize(.small)
-                Pill(title: "Clear Defaults", symbol: "eraser") { model.clearDefaults() }
             }
-            CardHeader(text: "KEYCHAIN & CLIPBOARD")
-            Pill(title: "Reset Keychain", symbol: "key") { model.resetKeychain() }
-            HStack(spacing: 6) {
-                Pill(title: "To Mac") { model.syncPasteboard(toMac: true) }
-                    .help("Copy the simulator's clipboard to your Mac")
-                Pill(title: "To Simulator") { model.syncPasteboard(toMac: false) }
-                    .help("Copy your Mac's clipboard to the simulator")
+            Row(label: "Clipboard") {
+                CompactMenu(title: "Copy") {
+                    Button("From the Simulator to Your Mac") { model.syncPasteboard(toMac: true) }
+                    Button("From Your Mac to the Simulator") { model.syncPasteboard(toMac: false) }
+                }
+            }
+            Row(label: "UserDefaults") {
+                Pill(title: "Clear") { model.clearDefaults() }.frame(width: 72)
+            }
+            Row(label: "Keychain") {
+                Pill(title: "Reset") { model.resetKeychain() }.frame(width: 72)
             }
         }
     }
@@ -489,7 +495,6 @@ struct DeepLinksCard: View {
             HStack(spacing: 6) {
                 TextField("myapp://path/{ARG}", text: $link)
                     .textFieldStyle(.roundedBorder)
-                    .controlSize(.small)
                     .onSubmit(openLink)
                 Pill(title: "Open", action: openLink)
                     .frame(width: 54)
@@ -498,15 +503,11 @@ struct DeepLinksCard: View {
             if link.contains("{ARG}") {
                 TextField("Value for {ARG}", text: $argument)
                     .textFieldStyle(.roundedBorder)
-                    .controlSize(.small)
                     .onSubmit(openLink)
             }
             let saved = library.deepLinks(for: model.selectedBundleID ?? "")
             if saved.isEmpty {
-                Text("Links you open are kept here for this app. Put {ARG} in a link to fill it in each time.")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                Note(text: "Links you open are kept here for this app. Put {ARG} in a link to fill it in each time.")
             }
             ForEach(saved, id: \.self) { savedLink in
                 HStack(spacing: 6) {
@@ -524,7 +525,7 @@ struct DeepLinksCard: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(.tertiary)
                 }
-                .padding(.vertical, 2)
+                .padding(.vertical, 3)
             }
         }
     }
@@ -560,9 +561,7 @@ struct PushCard: View {
                 .scrollContentBackground(.hidden)
                 .padding(4)
                 .background(.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 7))
-            Text("Or drop an .apns file on the panel.")
-                .font(.system(size: 10.5))
-                .foregroundStyle(.secondary)
+            Note(text: "Or drop an .apns file on the panel.")
         }
         .onAppear(perform: loadPayload)
         .onChange(of: model.selectedBundleID) { loadPayload() }
@@ -596,20 +595,17 @@ struct DefaultsCard: View {
                     }
                 }
                 .labelsHidden()
-                .controlSize(.small)
                 .help("Show the app's own defaults, or those of one of its App Groups")
             }
             HStack(spacing: 6) {
-                TextField("Search keys", text: $search).textFieldStyle(.roundedBorder).controlSize(.small)
+                TextField("Search keys", text: $search).textFieldStyle(.roundedBorder)
                 Button { model.loadDefaults() } label: { Image(systemName: "arrow.clockwise") }
                     .buttonStyle(PillButtonStyle())
                     .frame(width: 30)
                     .help("Reload")
             }
             if rows.isEmpty {
-                Text(model.defaults.isEmpty ? "This app hasn't saved any UserDefaults yet." : "No keys match.")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.secondary)
+                Note(text: model.defaults.isEmpty ? "This app hasn't saved any UserDefaults yet." : "No keys match.")
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 2) {
@@ -621,14 +617,14 @@ struct DefaultsCard: View {
                 .frame(height: min(CGFloat(rows.count) * 34, 300))
             }
             CardDivider()
-            CardHeader(text: "ADD A KEY")
-            TextField("Key", text: $newKey).textFieldStyle(.roundedBorder).controlSize(.small)
+            CardHeader(text: "Add a key")
+            TextField("Key", text: $newKey).textFieldStyle(.roundedBorder)
             HStack(spacing: 6) {
                 Picker("Type", selection: $newType) {
                     ForEach(["String", "Integer", "Number", "Boolean"], id: \.self) { Text($0).tag($0) }
                 }
-                .labelsHidden().controlSize(.small).frame(width: 84)
-                TextField("Value", text: $newValue).textFieldStyle(.roundedBorder).controlSize(.small)
+                .labelsHidden().frame(width: 92)
+                TextField("Value", text: $newValue).textFieldStyle(.roundedBorder)
                 Pill(title: "Add", action: addKey).frame(width: 44)
                     .disabled(newKey.isEmpty)
             }
@@ -713,9 +709,7 @@ struct BuildsCard: View {
         BuildInsightsCard(records: model.buildRecords)
         Card {
             if model.recentBuilds.isEmpty {
-                Text("Simulator builds from Xcode show up here.")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.secondary)
+                Note(text: "Simulator builds from Xcode show up here.")
             }
             ForEach(model.recentBuilds) { build in
                 HStack(spacing: 6) {
@@ -754,7 +748,7 @@ struct BuildInsightsCard: View {
 
     var body: some View {
         Card {
-            CardHeader(text: "7-DAY AVERAGE BUILD TIME")
+            CardHeader(text: "Average build time, last 7 days")
             if let summary = BuildInsights.summary(records) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(BuildInsights.format(summary.average)).font(.system(size: 22, weight: .semibold).monospacedDigit())
@@ -765,9 +759,7 @@ struct BuildInsightsCard: View {
                     }
                     Spacer()
                 }
-                Text("\(summary.count) builds · slowest \(BuildInsights.format(summary.slowest))\(summary.failures > 0 ? " · \(summary.failures) failed" : "")")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.secondary)
+                Note(text: "\(summary.count) builds · slowest \(BuildInsights.format(summary.slowest))\(summary.failures > 0 ? " · \(summary.failures) failed" : "")")
                 let schemes = Dictionary(grouping: records.prefix(200), by: \.scheme)
                     .map { (name: $0.key, average: $0.value.map(\.duration).reduce(0, +) / Double($0.value.count)) }
                     .sorted { $0.average > $1.average }
@@ -778,10 +770,7 @@ struct BuildInsightsCard: View {
                     }
                 }
             } else {
-                Text("Xcode records build times for builds you start in Xcode. Build there and your times show up here.")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                Note(text: "Xcode records build times for builds you start in Xcode. Build there and your times show up here.")
             }
         }
     }
@@ -798,7 +787,7 @@ struct DeviceTab: View {
 
     var body: some View {
         Card {
-            CardHeader(text: "APPEARANCE")
+            CardHeader(text: "Appearance")
             Segments(
                 options: [("light", "Light"), ("dark", "Dark")],
                 selection: Binding(get: { model.appearance ?? "light" }, set: { model.setAppearance($0) })
@@ -806,48 +795,46 @@ struct DeviceTab: View {
             SwitchRow(label: "9:41 status bar", isOn: Binding(get: { model.cleanStatusBar }, set: { model.setCleanStatusBar($0) }))
         }
         Card {
-            CardHeader(text: "LOCATION")
-            HStack(spacing: 6) {
+            CardHeader(text: "Location")
+            HStack(spacing: 8) {
                 Menu {
                     ForEach(Coordinate.places, id: \.name) { place in
                         Button(place.name) { model.setLocation(place.coordinate, name: place.name) }
                     }
                 } label: {
-                    Label("Place", systemImage: "mappin").font(.system(size: 11, weight: .medium))
+                    Label("Place", systemImage: "mappin").font(.system(size: 11.5, weight: .medium))
                 }
-                .menuStyle(.button).controlSize(.small)
+                .menuStyle(.button)
                 Menu {
                     ForEach(model.scenarios, id: \.self) { scenario in
                         Button(scenario) { model.runScenario(scenario) }
                     }
                 } label: {
-                    Label("Scenario", systemImage: "figure.run").font(.system(size: 11, weight: .medium))
+                    Label("Scenario", systemImage: "figure.run").font(.system(size: 11.5, weight: .medium))
                 }
-                .menuStyle(.button).controlSize(.small)
+                .menuStyle(.button)
             }
-            HStack(spacing: 6) {
-                TextField("Lat, long", text: $coordinate)
+            HStack(spacing: 8) {
+                TextField("Latitude, longitude", text: $coordinate)
                     .textFieldStyle(.roundedBorder)
-                    .controlSize(.small)
                     .onSubmit(setCoordinate)
                 Pill(title: "Set", action: setCoordinate)
-                    .frame(width: 44)
+                    .frame(width: 52)
                     .disabled(Coordinate(coordinate) == nil)
             }
-            CardHeader(text: "ROUTE")
-            TextField("From: a place or lat, long", text: $routeFrom).textFieldStyle(.roundedBorder).controlSize(.small)
-            TextField("To", text: $routeTo).textFieldStyle(.roundedBorder).controlSize(.small)
-            Segments(options: LocationRoute.Travel.allCases.map { ($0, $0.rawValue) }, selection: $travel)
-            HStack(spacing: 6) {
-                Pill(title: "Start Route", symbol: "location.north.line") { model.startRoute(from: routeFrom, to: routeTo, travel: travel) }
-                    .disabled(routeFrom.isEmpty || routeTo.isEmpty)
-                Pill(title: "Clear", symbol: "location.slash") { model.clearLocation() }
-                    .frame(width: 70)
-            }
+            Pill(title: "Clear Location", symbol: "location.slash") { model.clearLocation() }
         }
         .onAppear { model.loadScenarios() }
         Card {
-            CardHeader(text: "NETWORK SPEED")
+            CardHeader(text: "Route")
+            TextField("From a place, or latitude, longitude", text: $routeFrom).textFieldStyle(.roundedBorder)
+            TextField("To", text: $routeTo).textFieldStyle(.roundedBorder)
+            Segments(options: LocationRoute.Travel.allCases.map { ($0, $0.rawValue) }, selection: $travel)
+            Pill(title: "Start Route", symbol: "location.north.line") { model.startRoute(from: routeFrom, to: routeTo, travel: travel) }
+                .disabled(routeFrom.isEmpty || routeTo.isEmpty)
+        }
+        Card {
+            CardHeader(text: "Network speed")
             Row(label: "Behaves like") {
                 CompactMenu(title: model.network?.rawValue ?? "Slowed down") {
                     ForEach(NetworkCondition.allCases) { condition in
@@ -855,26 +842,22 @@ struct DeviceTab: View {
                     }
                 }
             }
-            Text(model.network == .normal
-                ? "Slows down your whole Mac's network, since the Simulator shares it. macOS asks for your password."
-                : "Your whole Mac's network is slowed down. It goes back to normal when you quit BetterSim.")
-                .font(.system(size: 10))
-                .foregroundStyle(model.network == .normal ? Color.secondary : Color.orange)
-                .fixedSize(horizontal: false, vertical: true)
+            if model.network == .normal {
+                Note(text: "Affects your whole Mac, since the Simulator shares its network.")
+            } else {
+                Note(text: "Your whole Mac is slowed down until you switch back or quit BetterSim.", tint: .orange)
+            }
         }
         Card {
-            CardHeader(text: "SIMULATOR")
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 6) {
+            CardHeader(text: "Simulator")
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
                 ForEach(SimulatorMenu.Action.allCases) { action in
                     Pill(title: action.rawValue) { model.press(action) }
                 }
                 Pill(title: "Restart") { model.restartDevice() }
             }
             if !AccessibilityScreenFinder.isTrusted {
-                Text("Shake, memory warnings and slow animations need Accessibility access.")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                Note(text: "Shake, memory warnings and slow animations need Accessibility access.")
             }
         }
     }
@@ -883,7 +866,6 @@ struct DeviceTab: View {
         guard let value = Coordinate(coordinate) else { return }
         model.setLocation(value, name: coordinate)
     }
-
 }
 
 // MARK: - Accessibility
@@ -893,7 +875,7 @@ struct AccessibilityTab: View {
 
     var body: some View {
         Card {
-            CardHeader(text: "DISPLAY & TEXT")
+            CardHeader(text: "Display and text")
             SwitchRow(label: "Increase contrast", isOn: Binding(get: { model.increasedContrast }, set: { model.setIncreasedContrast($0) }))
             ForEach(AccessibilityToggle.allCases) { toggle in
                 SwitchRow(label: toggle.rawValue, isOn: Binding(
@@ -921,7 +903,7 @@ struct AccessibilityTab: View {
             }
         }
         Card {
-            CardHeader(text: "AUDIT")
+            CardHeader(text: "Audit")
             Pill(title: "Audit This Screen", symbol: "checklist", isOn: true) { model.runAudit() }
             if !model.findings.isEmpty {
                 ScrollView {
@@ -951,7 +933,7 @@ struct AccessibilityTab: View {
             }
         }
         Card {
-            CardHeader(text: "VOICEOVER NAVIGATOR")
+            CardHeader(text: "VoiceOver navigator")
             if let index = model.focusedElement, model.elements.indices.contains(index) {
                 let element = model.elements[index]
                 VStack(alignment: .leading, spacing: 2) {
@@ -963,16 +945,14 @@ struct AccessibilityTab: View {
                         .foregroundStyle(.secondary)
                 }
             } else {
-                Text("Step through the screen in the order VoiceOver reads it.")
-                    .font(.system(size: 10.5))
-                    .foregroundStyle(.secondary)
+                Note(text: "Step through the screen in the order VoiceOver reads it.")
             }
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 Pill(title: "Previous", symbol: "chevron.left") { model.moveFocus(by: -1) }
                 Pill(title: "Next", symbol: "chevron.right") { model.moveFocus(by: 1) }
             }
             SwitchRow(label: "Speak each element", isOn: $model.speaksElements)
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 Pill(title: "Reload") { model.loadElements() }
                 Pill(title: "Clear") { model.clearHighlight() }
             }

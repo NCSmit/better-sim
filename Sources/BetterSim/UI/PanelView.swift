@@ -35,7 +35,7 @@ struct PanelView: View {
     }
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: Theme.spacing) {
             Card(padding: 4) {
                 HStack(spacing: 0) {
                     IconTabs(tabs: Tab.allCases, selection: $tab, symbol: \.symbol, title: \.rawValue)
@@ -53,19 +53,30 @@ struct PanelView: View {
                         .foregroundStyle(.secondary)
                 }
             } else {
-                switch tab {
-                case .capture: CaptureTab(model: model, preferences: model.preferences)
-                case .compare: CompareTab(model: model, overlay: overlay)
-                case .app: AppTab(model: model, library: model.library)
-                case .device: DeviceTab(model: model)
-                case .accessibility: AccessibilityTab(model: model)
+                // The old tab goes at once and the new one fades in, so the two never overlap.
+                VStack(spacing: Theme.spacing) {
+                    switch tab {
+                    case .capture: CaptureTab(model: model, preferences: model.preferences)
+                    case .compare: CompareTab(model: model, overlay: overlay)
+                    case .app: AppTab(model: model, library: model.library)
+                    case .device: DeviceTab(model: model)
+                    case .accessibility: AccessibilityTab(model: model)
+                    }
                 }
-            }
-            if let message = model.message {
-                MessageCard(message: message)
+                .id(tab)
+                .transition(.asymmetric(insertion: .opacity, removal: .identity))
             }
         }
         .frame(width: Theme.width)
+        // Messages float over the bottom of the panel instead of making it taller for a few seconds.
+        .overlay(alignment: .bottom) {
+            if let message = model.message {
+                MessageCard(message: message)
+                    .shadow(color: .black.opacity(0.35), radius: 10, y: 4)
+                    .padding(.horizontal, 6)
+                    .padding(.bottom, 6)
+            }
+        }
         .overlay {
             if isDropTargeted {
                 RoundedRectangle(cornerRadius: Theme.cardRadius, style: .continuous)
@@ -95,8 +106,7 @@ struct PanelView: View {
             MainActor.assumeIsolated { layout.height = height }
         }
         .frame(maxHeight: .infinity, alignment: .top)
-        .animation(.snappy(duration: 0.18), value: model.message)
-        .animation(.snappy(duration: 0.18), value: tab)
+        .animation(.snappy(duration: Theme.motion), value: model.message)
     }
 
     private var moreMenu: some View {
@@ -141,15 +151,17 @@ struct MessageCard: View {
     let message: SimulatorModel.Message
 
     var body: some View {
-        Card(padding: 9) {
-            HStack(alignment: .top, spacing: 6) {
-                Image(systemName: message.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                    .foregroundStyle(message.isError ? .orange : .green)
-                Text(message.text).lineLimit(4)
-                Spacer(minLength: 0)
-            }
-            .font(Theme.font)
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: message.isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
+                .foregroundStyle(message.isError ? .orange : .green)
+            Text(message.text).lineLimit(4).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
         }
-        .transition(.move(edge: .top).combined(with: .opacity))
+        .font(Theme.font)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(Color(white: 0.13), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.white.opacity(0.12)))
+        .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 }

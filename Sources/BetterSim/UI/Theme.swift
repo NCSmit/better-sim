@@ -2,10 +2,15 @@ import AppKit
 import SwiftUI
 
 enum Theme {
-    static let width: CGFloat = 252
-    static let cardRadius: CGFloat = 12
-    static let font = Font.system(size: 11.5)
-    static let smallFont = Font.system(size: 10.5, weight: .semibold)
+    static let width: CGFloat = 280
+    static let cardRadius: CGFloat = 14
+    static let cardPadding: CGFloat = 12
+    static let spacing: CGFloat = 10
+    static let font = Font.system(size: 12)
+    static let smallFont = Font.system(size: 11, weight: .semibold)
+    static let noteFont = Font.system(size: 11)
+    /// How long the panel takes to grow, shrink or fade.
+    static let motion: TimeInterval = 0.2
     /// The frosted material on its own barely darkens what's behind it. With this on top, the cards show the desktop
     /// at about 60% brightness, like RocketSim's side window.
     static let cardShade = Color.black.opacity(0.4)
@@ -47,8 +52,8 @@ struct PanelSurface: View {
 
 /// One floating, frosted card of the side panel.
 struct Card<Content: View>: View {
-    var padding: CGFloat = 10
-    var spacing: CGFloat = 8
+    var padding = Theme.cardPadding
+    var spacing = Theme.spacing
     @ViewBuilder let content: Content
 
     var body: some View {
@@ -76,7 +81,7 @@ struct Row<Control: View>: View {
             control
         }
         .font(Theme.font)
-        .frame(minHeight: 22)
+        .frame(minHeight: 26)
     }
 }
 
@@ -101,9 +106,19 @@ struct CardHeader: View {
     }
 }
 
+/// A short explanation under a control.
+struct Note: View {
+    let text: String
+    var tint: Color = .secondary
+
+    var body: some View {
+        Text(text).font(Theme.noteFont).foregroundStyle(tint).fixedSize(horizontal: false, vertical: true)
+    }
+}
+
 struct CardDivider: View {
     var body: some View {
-        Rectangle().fill(.white.opacity(0.08)).frame(height: 1).padding(.horizontal, -10)
+        Rectangle().fill(.white.opacity(0.08)).frame(height: 1).padding(.horizontal, -Theme.cardPadding)
     }
 }
 
@@ -113,17 +128,18 @@ struct PillButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 11, weight: .medium))
+            .font(.system(size: 11.5, weight: .medium))
             .lineLimit(1)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
             .frame(maxWidth: .infinity)
             .foregroundStyle(isOn ? .white : .primary)
             .background(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(isOn ? tint : Color.white.opacity(configuration.isPressed ? 0.2 : 0.09))
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isOn ? tint : Color.white.opacity(configuration.isPressed ? 0.16 : 0.08))
             )
-            .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
     }
 }
 
@@ -151,21 +167,27 @@ struct IconTabs<Tab: Hashable & Identifiable>: View {
     @Binding var selection: Tab
     let symbol: (Tab) -> String
     let title: (Tab) -> String
+    @Namespace private var marker
 
     var body: some View {
         HStack(spacing: 0) {
             ForEach(tabs) { tab in
-                Button { selection = tab } label: {
-                    VStack(spacing: 4) {
+                Button {
+                    withAnimation(.snappy(duration: Theme.motion)) { selection = tab }
+                } label: {
+                    VStack(spacing: 5) {
                         Image(systemName: symbol(tab))
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(selection == tab ? Color.accentColor : .secondary)
-                            .frame(height: 16)
-                        Capsule()
-                            .fill(selection == tab ? Color.accentColor : .clear)
-                            .frame(width: 14, height: 2)
+                            .frame(height: 17)
+                        ZStack {
+                            if selection == tab {
+                                Capsule().fill(Color.accentColor).matchedGeometryEffect(id: "marker", in: marker)
+                            }
+                        }
+                        .frame(width: 16, height: 2)
                     }
-                    .frame(width: 34, height: 28)
+                    .frame(width: 40, height: 32)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -263,20 +285,26 @@ struct PanelSlider: View {
 struct Segments<Value: Hashable>: View {
     let options: [(value: Value, title: String)]
     @Binding var selection: Value
+    @Namespace private var highlight
 
     var body: some View {
         HStack(spacing: 2) {
             ForEach(options, id: \.value) { option in
-                Button { selection = option.value } label: {
+                Button {
+                    withAnimation(.snappy(duration: Theme.motion)) { selection = option.value }
+                } label: {
                     Text(option.title)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: 11.5, weight: .medium))
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 4)
+                        .padding(.vertical, 5)
                         .foregroundStyle(selection == option.value ? .white : .secondary)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(selection == option.value ? Color.accentColor : .clear)
-                        )
+                        .background {
+                            if selection == option.value {
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(Color.accentColor)
+                                    .matchedGeometryEffect(id: "highlight", in: highlight)
+                            }
+                        }
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)

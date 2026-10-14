@@ -273,11 +273,11 @@ struct Coordinate: Hashable, Codable, Sendable {
 /// Accessibility settings simctl has no command for. The device keeps them in its com.apple.Accessibility
 /// preferences, and posting the matching notification makes running apps pick a change up straight away.
 enum AccessibilityToggle: String, CaseIterable, Identifiable, Sendable {
-    case boldText = "Bold Text"
-    case reduceMotion = "Reduce Motion"
-    case reduceTransparency = "Reduce Transparency"
-    case buttonShapes = "Button Shapes"
-    case differentiateWithoutColour = "Differentiate Without Colour"
+    case boldText = "Bold text"
+    case reduceMotion = "Reduce motion"
+    case reduceTransparency = "Reduce transparency"
+    case buttonShapes = "Button shapes"
+    case differentiateWithoutColour = "Differentiate without colour"
 
     var id: String { rawValue }
 

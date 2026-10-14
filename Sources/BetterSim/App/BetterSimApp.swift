@@ -171,6 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         window.appearance = NSAppearance(named: .darkAqua)
         let backdrop = LinearGradient(colors: [Color(red: 0.16, green: 0.2, blue: 0.55), Color(red: 0.05, green: 0.07, blue: 0.2)], startPoint: .top, endPoint: .bottom)
         window.contentView = NSHostingView(rootView: PanelView(model: model, overlay: overlay, layout: PanelLayout())
+            .environment(\.blursBehindPanel, false)
             .padding(20)
             .frame(width: Theme.width + 40, height: 1100, alignment: .top)
             .background(backdrop))
